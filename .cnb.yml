@@ -44,6 +44,7 @@ $:
           options:
             title: "${CNB_BRANCH}"
             descriptionFromFile: RELEASE_NOTES.md
+            latest: true
 
         - name: Upload VSIX To Release
           image: cnbcool/attachments:latest
