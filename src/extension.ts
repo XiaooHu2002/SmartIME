@@ -9,7 +9,7 @@ import { ContextZone, EditorRule, ImeMode, RegexRule } from "./types";
 
 // 统一编排：监听编辑器事件 -> 计算目标输入态 -> 调用输入法控制层。
 class SmartInputService implements vscode.Disposable {
-  private readonly imeController = new ImeController();
+  private readonly imeController: ImeController;
   private readonly punctuationReplacer = new PunctuationReplacer();
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   private readonly diagnosticStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
@@ -20,6 +20,8 @@ class SmartInputService implements vscode.Disposable {
   private queuedEvaluateReason: string | undefined;
   private pollTimer: NodeJS.Timeout | undefined;
   private activitySyncTimer: NodeJS.Timeout | undefined;
+  private editorInteractionTimer: NodeJS.Timeout | undefined;
+  private editorInteractionArmed = false;
   private lastActivitySyncAt = 0;
   private lastProgrammaticSwitchAt = 0;
   private manualChineseSticky = false;
@@ -58,14 +60,19 @@ class SmartInputService implements vscode.Disposable {
       result: { mode: ImeMode; detail: string } | null;
     }
     | undefined;
+  private static readonly EDITOR_INTERACTION_HOLD_MS = 800;
 
   private get workspacePath(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
   }
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    this.imeController = new ImeController(this.context.extensionPath);
+
     // 状态栏入口：点击可打开插件菜单。
     this.statusBar.command = "smartInput.showMenu";
+    this.statusBar.text = "SmartIME 中/英";
+    this.statusBar.tooltip = "SmartIME 正在初始化";
     this.statusBar.show();
     this.diagnosticStatusBar.command = "smartInput.showMenu";
 
@@ -83,20 +90,48 @@ class SmartInputService implements vscode.Disposable {
     this.imeController.onDidDiagnostic((trace) => this.updateDiagnosticBar(trace));
 
     this.context.subscriptions.push(
-      vscode.window.onDidChangeActiveTextEditor(() => this.scheduleEvaluate("active editor changed")),
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        if (editor) {
+          this.armEditorInteraction();
+          this.scheduleEvaluate("active editor changed");
+          return;
+        }
+        this.disarmEditorInteraction();
+      }),
       vscode.window.onDidChangeTextEditorSelection(() => {
+        this.armEditorInteraction();
         this.renderDecoratorAtLineEnd(this.imeController.mode);
         this.scheduleEvaluate("cursor moved", true);
         this.scheduleActivitySync();
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor || activeEditor.document !== event.document) {
+          return;
+        }
+
+        this.armEditorInteraction();
         this.punctuationReplacer
           .handleChange(event, getSmartInputConfig().punctuationRules)
           .catch((error) => console.error(error));
         this.scheduleEvaluate("text changed", true);
       }),
       vscode.window.onDidChangeWindowState((state) => {
-        if (state.focused) {
+        if (!state.focused) {
+          this.disarmEditorInteraction();
+          if (this.evaluateTimer) {
+            clearTimeout(this.evaluateTimer);
+            this.evaluateTimer = undefined;
+          }
+          if (this.activitySyncTimer) {
+            clearTimeout(this.activitySyncTimer);
+            this.activitySyncTimer = undefined;
+          }
+          this.updateStatusBar(this.imeController.mode, "paused: window not focused");
+          return;
+        }
+        if (vscode.window.activeTextEditor) {
+          this.armEditorInteraction();
           this.scheduleActivitySync();
           this.scheduleEvaluate("window focused");
         }
@@ -126,7 +161,14 @@ class SmartInputService implements vscode.Disposable {
 
     this.restartPolling();
     this.refreshDiagnosticBarByConfig();
-    void this.evaluateAndSwitch("startup");
+    if (vscode.window.state.focused && vscode.window.activeTextEditor) {
+      this.armEditorInteraction();
+    }
+    setTimeout(() => {
+      void this.evaluateAndSwitch("startup").catch((error) => {
+        console.error("[SmartIME] startup evaluate failed", error);
+      });
+    }, 0);
   }
 
   public dispose(): void {
@@ -139,7 +181,43 @@ class SmartInputService implements vscode.Disposable {
     if (this.activitySyncTimer) {
       clearTimeout(this.activitySyncTimer);
     }
+    if (this.editorInteractionTimer) {
+      clearTimeout(this.editorInteractionTimer);
+    }
     this.decorationType?.dispose();
+  }
+
+  private armEditorInteraction(): void {
+    this.editorInteractionArmed = true;
+    if (this.editorInteractionTimer) {
+      clearTimeout(this.editorInteractionTimer);
+    }
+    // 仅在最近一次编辑区交互后的一段时间内进行检测，避免在聊天/侧边栏停留时持续调用。
+    this.editorInteractionTimer = setTimeout(() => {
+      this.editorInteractionArmed = false;
+      this.updateStatusBar(this.imeController.mode, "paused: editor not focused");
+    }, SmartInputService.EDITOR_INTERACTION_HOLD_MS);
+  }
+
+  private disarmEditorInteraction(): void {
+    this.editorInteractionArmed = false;
+    if (this.editorInteractionTimer) {
+      clearTimeout(this.editorInteractionTimer);
+      this.editorInteractionTimer = undefined;
+    }
+  }
+
+  private getPauseReason(): string | undefined {
+    if (!vscode.window.state.focused) {
+      return "window not focused";
+    }
+    if (!vscode.window.activeTextEditor) {
+      return "no active editor";
+    }
+    if (!this.editorInteractionArmed) {
+      return "editor not focused";
+    }
+    return undefined;
   }
 
   private restartPolling(): void {
@@ -156,6 +234,9 @@ class SmartInputService implements vscode.Disposable {
 
     // 轮询系统输入态，兼容用户手动切换输入法的场景。
     this.pollTimer = setInterval(() => {
+      if (this.getPauseReason()) {
+        return;
+      }
       this.imeController
         .refreshFromSystem(
           imeCmd.getStateCommand,
@@ -187,7 +268,7 @@ class SmartInputService implements vscode.Disposable {
       const bundledScript = path.join(this.context.extensionPath, "tools", "ime-mode.ps1");
       if (fs.existsSync(bundledScript)) {
         const quotedScript = `\"${bundledScript}\"`;
-        const prefix = `powershell -NoProfile -ExecutionPolicy Bypass -File ${quotedScript}`;
+        const prefix = `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File ${quotedScript}`;
         return {
           getStateCommand: `${prefix} get`,
           switchToChineseCommand: `${prefix} zh`,
@@ -298,6 +379,10 @@ class SmartInputService implements vscode.Disposable {
   }
 
   private scheduleEvaluate(reason: string, immediate = false): void {
+    if (this.getPauseReason()) {
+      return;
+    }
+
     if (this.evaluateTimer) {
       clearTimeout(this.evaluateTimer);
       this.evaluateTimer = undefined;
@@ -316,6 +401,10 @@ class SmartInputService implements vscode.Disposable {
   }
 
   private async runEvaluate(reason: string): Promise<void> {
+    if (this.getPauseReason()) {
+      return;
+    }
+
     if (this.evaluateInFlight) {
       this.queuedEvaluateReason = reason;
       return;
@@ -339,6 +428,9 @@ class SmartInputService implements vscode.Disposable {
     if (!cfg.ime.liveSyncOnActivity) {
       return;
     }
+    if (this.getPauseReason()) {
+      return;
+    }
 
     // 切换判定/执行进行中时，优先保证自动切换不被状态查询抢占。
     if (this.evaluateInFlight) {
@@ -358,6 +450,10 @@ class SmartInputService implements vscode.Disposable {
   }
 
   private async runActivitySync(): Promise<void> {
+    if (this.getPauseReason()) {
+      return;
+    }
+
     const cfg = getSmartInputConfig();
     const now = Date.now();
     if (now - this.lastActivitySyncAt < cfg.ime.liveSyncMinIntervalMs) {
@@ -406,6 +502,12 @@ class SmartInputService implements vscode.Disposable {
   }
 
   private async evaluateAndSwitch(reason: string): Promise<void> {
+    const pauseReason = this.getPauseReason();
+    if (pauseReason) {
+      this.updateStatusBar(this.imeController.mode, `paused: ${pauseReason}`);
+      return;
+    }
+
     const editor = vscode.window.activeTextEditor;
     const cfg = getSmartInputConfig();
 
@@ -763,7 +865,18 @@ class SmartInputService implements vscode.Disposable {
     const cfg = getSmartInputConfig();
     const modeText = mode === "chinese" ? "中" : "英";
     this.statusBar.text = `SmartIME ${modeText}`;
-    this.statusBar.tooltip = cfg.showDetailInStatusBar ? detail : "点击打开 SmartIME 菜单";
+    if (!cfg.showDetailInStatusBar) {
+      this.statusBar.tooltip = "点击打开 SmartIME 菜单";
+      return;
+    }
+
+    const lower = detail.toLowerCase();
+    const isBackgroundNoise = lower.includes("mode changed") || lower.includes("window focused");
+    if (isBackgroundNoise && this.statusBar.tooltip) {
+      return;
+    }
+
+    this.statusBar.tooltip = detail;
   }
 
   private updateCursorDecorator(mode: ImeMode): void {

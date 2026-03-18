@@ -2,8 +2,8 @@
   "name": "smartime",
   "displayName": "SmartIME",
   "description": "根据代码上下文自动切换输入法中英文状态。",
-  "version": "0.0.1",
-  "publisher": "xiaoo",
+  "version": "0.0.2",
+  "publisher": "XiaooHu",
   "repository": {
     "type": "git",
     "url": "https://cnb.cool/qianyios/SmartIME.git"
@@ -22,6 +22,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
+    "build:ime-worker": "go build -C tools/ime-worker -o ../ime-worker.exe .",
     "package": "npm run compile"
   },
   "contributes": {

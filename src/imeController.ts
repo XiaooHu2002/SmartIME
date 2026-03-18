@@ -1,6 +1,7 @@
 import { exec } from "child_process";
 import * as vscode from "vscode";
 import { ImeMode } from "./types";
+import { ImeWorkerClient } from "./imeWorkerClient";
 
 export interface ImeDiagnosticTrace {
   phase: "refresh" | "switch";
@@ -48,6 +49,11 @@ export class ImeController implements vscode.Disposable {
   private readonly modeEmitter = new vscode.EventEmitter<ImeMode>();
   private readonly diagnosticEmitter = new vscode.EventEmitter<ImeDiagnosticTrace>();
   private readonly output = vscode.window.createOutputChannel("SmartIME");
+  private readonly workerClient: ImeWorkerClient | undefined;
+
+  constructor(extensionPath?: string) {
+    this.workerClient = extensionPath ? new ImeWorkerClient(extensionPath) : undefined;
+  }
 
   public readonly onDidChangeMode = this.modeEmitter.event;
   public readonly onDidDiagnostic = this.diagnosticEmitter.event;
@@ -61,6 +67,27 @@ export class ImeController implements vscode.Disposable {
     chinesePatterns: string[],
     englishPatterns: string[],
   ): Promise<ImeMode | null> {
+    if (this.shouldUseWorker(getStateCommand)) {
+      try {
+        const output = await this.workerClient!.execute("get");
+        const parsed = parseModeFromOutput(output, chinesePatterns, englishPatterns);
+        if (parsed) {
+          this.updateMode(parsed);
+        }
+        this.emitDiagnostic({
+          phase: "refresh",
+          success: parsed !== null,
+          mode: parsed ?? "unknown",
+          command: "ime-worker:get",
+          output,
+          message: parsed ? "state parsed by worker" : "state unknown",
+        });
+        return parsed;
+      } catch (error) {
+        this.output.appendLine(`[refreshFromSystem:worker] ${String(error)}`);
+      }
+    }
+
     if (!getStateCommand) {
       return null;
     }
@@ -139,7 +166,32 @@ export class ImeController implements vscode.Disposable {
     // 先更新本地状态，降低注释/代码快速切换时的可见延迟；失败再回滚。
     this.updateMode(mode);
 
-    if (switchCommand) {
+    if (switchCommand && this.shouldUseWorker(switchCommand)) {
+      try {
+        const action = mode === "chinese" ? "zh" : "en";
+        const output = await this.workerClient!.execute(action);
+        this.emitDiagnostic({
+          phase: "switch",
+          success: true,
+          mode,
+          command: `ime-worker:${action}`,
+          output,
+          message: "switch by worker",
+        });
+      } catch (error) {
+        this.output.appendLine(`[switchTo:${mode}:worker] failed, reason=${reason}, error=${String(error)}`);
+        this.updateMode(previousMode);
+        this.emitDiagnostic({
+          phase: "switch",
+          success: false,
+          mode,
+          command: "ime-worker",
+          output: "",
+          message: `worker switch error: ${String(error)}`,
+        });
+        return false;
+      }
+    } else if (switchCommand) {
       try {
         const result = await runShell(switchCommand);
         this.emitDiagnostic({
@@ -198,6 +250,13 @@ export class ImeController implements vscode.Disposable {
     return true;
   }
 
+  private shouldUseWorker(command: string): boolean {
+    if (!command || !this.workerClient?.available) {
+      return false;
+    }
+    return command.toLowerCase().includes("ime-mode.ps1");
+  }
+
   private emitDiagnostic(trace: Omit<ImeDiagnosticTrace, "timestamp">): void {
     this.diagnosticEmitter.fire({
       ...trace,
@@ -218,6 +277,7 @@ export class ImeController implements vscode.Disposable {
   }
 
   public dispose(): void {
+    this.workerClient?.dispose();
     this.modeEmitter.dispose();
     this.diagnosticEmitter.dispose();
     this.output.dispose();

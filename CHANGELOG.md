@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.2
+
+- 重构输入法执行链路：引入 Go 常驻 worker（`tools/ime-worker.exe`）处理 `get/zh/en`，降低切换延迟。
+- `src` 中删除已被 Go 方案替代的 PowerShell 快速执行分支，保留通用命令回退路径。
+- 扩展在启动和失焦场景下优化状态栏展示，默认显示 `SmartIME 中/英` 并在初始化后切为实时状态。
+- 增加 `npm run build:ime-worker` 脚本，便于本地重新编译 worker。
+
 ## 0.0.1
 
 - 初始版本发布。

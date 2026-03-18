@@ -23,6 +23,8 @@ A VS Code extension that helps Chinese-native developers auto-switch IME by edit
 	- You can switch back manually with Shift.
 	- Or move the cursor to an English code position, then SmartIME auto switches back to English.
 - Status bar and cursor decoration try to follow manual Shift changes quickly.
+- Detection runs only when VS Code is focused and you are actively interacting in the code editor (cursor move or typing).
+- Detection is paused when focus moves to Typora, chat panel, sidebar, or other non-editor UI, and resumes quickly after returning to code.
 
 This behavior is designed to avoid interrupting Chinese input while keeping code-writing flow natural.
 
@@ -62,6 +64,12 @@ Common performance and realtime settings:
 5. Run `Show Smart Input Pro Menu` from command palette.
 
 You can also run the Chinese command: `显示 SmartIME 菜单`.
+
+## Installation
+
+Install from VSIX via Extensions view menu: `...` -> `Install from VSIX...`
+
+![VSIX install](./README.assets/image-20260318162132151.png)
 
 ## Windows Command Examples (Optional)
 
