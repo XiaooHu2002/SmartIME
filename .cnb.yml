@@ -39,6 +39,12 @@ $:
               cp CHANGELOG.md RELEASE_NOTES.md
             fi
 
+        - name: Create Release
+          type: git:release
+          options:
+            title: "${CNB_BRANCH}"
+            descriptionFromFile: RELEASE_NOTES.md
+
         - name: Upload VSIX To Release
           image: cnbcool/attachments:latest
           settings:
