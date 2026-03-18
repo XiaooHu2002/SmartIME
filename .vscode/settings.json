@@ -1,0 +1,18 @@
+{
+  "smartInput.enabled": true,
+  "smartInput.showDetailInStatusBar": false,
+  "smartInput.evaluateDebounceMs": 0,
+  "smartInput.contextScanLookbackChars": 6000,
+  "smartInput.diagnostic.enabled": false,
+  "smartInput.cursorDecorator.enabled": true,
+  "smartInput.cursorColor.enabled": false,
+  "smartInput.vimNormalForceEnglish": true,
+  "smartInput.ime.verifyAfterSwitch": false,
+  "smartInput.ime.pollingIntervalMs": 300,
+  "smartInput.ime.liveSyncOnActivity": true,
+  "smartInput.ime.liveSyncMinIntervalMs": 220,
+  "smartInput.ime.liveSyncDebounceMs": 180,
+  "smartInput.ime.getStateCommand": "",
+  "smartInput.ime.switchToChineseCommand": "",
+  "smartInput.ime.switchToEnglishCommand": ""
+}

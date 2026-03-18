@@ -1,0 +1,418 @@
+{
+  "name": "smartime",
+  "displayName": "SmartIME",
+  "description": "根据代码上下文自动切换输入法中英文状态。",
+  "version": "0.0.1",
+  "publisher": "xiaoo",
+  "repository": {
+    "type": "git",
+    "url": "https://cnb.cool/qianyios/SmartIME.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "npm run compile"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "smartInput.showMenu",
+        "title": "显示 SmartIME 菜单"
+      },
+      {
+        "command": "smartInput.showMenuCompat",
+        "title": "Show Smart Input Pro Menu"
+      },
+      {
+        "command": "smartInput.toggleAutoSwitch",
+        "title": "SmartIME: 自动切换开关"
+      },
+      {
+        "command": "smartInput.switchToChinese",
+        "title": "SmartIME: 切换到中文"
+      },
+      {
+        "command": "smartInput.switchToEnglish",
+        "title": "SmartIME: 切换到英文"
+      },
+      {
+        "command": "smartInput.openSettings",
+        "title": "SmartIME: 打开设置"
+      }
+    ],
+    "configuration": {
+      "title": "SmartIME",
+      "properties": {
+        "smartInput.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用自动切换输入法。"
+        },
+        "smartInput.showDetailInStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "在状态栏显示自动切换的详细原因。"
+        },
+        "smartInput.evaluateDebounceMs": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "description": "自动切换触发防抖毫秒数。越小越快，0 表示不防抖。"
+        },
+        "smartInput.contextScanLookbackChars": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 512,
+          "description": "上下文检测回看字符数。越小越快，但跨超长块注释/字符串时可能降低精度。"
+        },
+        "smartInput.diagnostic.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "在状态栏显示实时诊断（命令与执行结果）。"
+        },
+        "smartInput.cursorDecorator.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "在光标附近显示输入态指示。"
+        },
+        "smartInput.cursorDecorator.chineseText": {
+          "type": "string",
+          "default": "中",
+          "description": "中文输入态时的光标装饰文本。"
+        },
+        "smartInput.cursorDecorator.englishText": {
+          "type": "string",
+          "default": "英",
+          "description": "英文输入态时的光标装饰文本。"
+        },
+        "smartInput.cursorColor.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "根据输入态切换光标颜色（通过 workbench.colorCustomizations 更新）。"
+        },
+        "smartInput.cursorColor.chinese": {
+          "type": "string",
+          "default": "#ff4d4f",
+          "description": "中文输入态光标颜色。"
+        },
+        "smartInput.cursorColor.english": {
+          "type": "string",
+          "default": "#40a9ff",
+          "description": "英文输入态光标颜色。"
+        },
+        "smartInput.ime.getStateCommand": {
+          "type": "string",
+          "default": "",
+          "description": "查询当前输入态的命令，输出中应包含 zh/chinese 或 en/english。"
+        },
+        "smartInput.ime.switchToChineseCommand": {
+          "type": "string",
+          "default": "",
+          "description": "切换到中文输入态的命令。"
+        },
+        "smartInput.ime.switchToEnglishCommand": {
+          "type": "string",
+          "default": "",
+          "description": "切换到英文输入态的命令。"
+        },
+        "smartInput.ime.chineseStatePatterns": {
+          "type": "array",
+          "default": [
+            "zh",
+            "chinese",
+            "cn"
+          ],
+          "description": "识别中文输入态关键字（推荐 zh/chinese/cn）。"
+        },
+        "smartInput.ime.englishStatePatterns": {
+          "type": "array",
+          "default": [
+            "en",
+            "english"
+          ],
+          "description": "识别英文输入态关键字（推荐 en/english）。"
+        },
+        "smartInput.ime.verifyAfterSwitch": {
+          "type": "boolean",
+          "default": false,
+          "description": "切换后是否再次执行状态查询命令进行校验。关闭可提升响应速度。"
+        },
+        "smartInput.ime.pollingIntervalMs": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "轮询查询输入态的间隔毫秒数，0 表示关闭轮询（推荐，更快）。"
+        },
+        "smartInput.ime.liveSyncOnActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "在光标移动/输入时快速同步系统输入态，确保状态跟上 Shift 切换。"
+        },
+        "smartInput.ime.liveSyncMinIntervalMs": {
+          "type": "number",
+          "default": 120,
+          "minimum": 20,
+          "description": "活动同步最小间隔（毫秒）。值越小跟随越快，但命令调用更频繁。"
+        },
+        "smartInput.ime.liveSyncDebounceMs": {
+          "type": "number",
+          "default": 120,
+          "minimum": 0,
+          "description": "活动同步防抖（毫秒）。用于减少光标高频移动时的命令抖动。"
+        },
+        "smartInput.ime.manualChineseHoldMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 0,
+          "description": "在英文代码区手动切到中文后，延迟自动切回英文的最大时长（毫秒）。"
+        },
+        "smartInput.ime.manualChineseIdleRevertMs": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 300,
+          "description": "手动切中文后若光标无操作，空闲超过该时长自动切回英文（毫秒）。"
+        },
+        "smartInput.editorRules": {
+          "type": "array",
+          "default": [
+            {
+              "name": "C/Java/TS 等 C 风格语言",
+              "fileTypes": [
+                ".v",
+                ".vh",
+                ".ts",
+                ".js",
+                ".tsx",
+                ".jsx",
+                ".vue",
+                ".ets",
+                ".java",
+                ".kt",
+                ".groovy",
+                ".php",
+                ".cpp",
+                ".c",
+                ".cc",
+                ".h",
+                ".hpp",
+                ".hxx",
+                ".cxx",
+                ".m",
+                ".mm",
+                ".swift",
+                ".rb",
+                ".go",
+                ".cs",
+                ".fs",
+                ".rs",
+                ".dart",
+                ".sql"
+              ],
+              "string": "english",
+              "lineComment": "chinese",
+              "blockComment": "chinese",
+              "docComment": "chinese",
+              "other": "english"
+            },
+            {
+              "name": "Python 生态",
+              "fileTypes": [
+                ".py",
+                ".ipynb",
+                ".gd",
+                ".pyw",
+                ".pyi",
+                ".pyx",
+                ".pxd",
+                ".pxi",
+                ".rpy"
+              ],
+              "languageIds": [
+                "python",
+                "jupyter"
+              ],
+              "string": "english",
+              "lineComment": "chinese",
+              "other": "english"
+            },
+            {
+              "name": "HTML/XML 模板语言",
+              "fileTypes": [
+                ".html",
+                ".htm",
+                ".xml",
+                ".xhtml",
+                ".jsp",
+                ".asp",
+                ".aspx"
+              ],
+              "string": "english",
+              "blockComment": "chinese",
+              "other": "english"
+            },
+            {
+              "name": "Markdown",
+              "fileTypes": [
+                ".md",
+                ".markdown"
+              ],
+              "other": "chinese"
+            },
+            {
+              "name": "YAML",
+              "fileTypes": [
+                ".yaml",
+                ".yml"
+              ],
+              "lineComment": "chinese",
+              "other": "english"
+            },
+            {
+              "name": "Shell",
+              "fileTypes": [
+                ".sh",
+                ".bash",
+                ".zsh",
+                ".ksh"
+              ],
+              "string": "english",
+              "lineComment": "chinese",
+              "other": "english"
+            }
+          ],
+          "description": "按文件类型 + 上下文区域设置输入态。"
+        },
+        "smartInput.regexRules": {
+          "type": "array",
+          "default": [],
+          "description": "按光标左右文本进行正则匹配的规则。"
+        },
+        "smartInput.punctuationRules": {
+          "type": "array",
+          "default": [
+            {
+              "name": "常见文件中文符号替换",
+              "fileTypes": [
+                ".v",
+                ".vh",
+                ".ts",
+                ".js",
+                ".tsx",
+                ".jsx",
+                ".vue",
+                ".ets",
+                ".java",
+                ".kt",
+                ".groovy",
+                ".php",
+                ".cpp",
+                ".c",
+                ".cc",
+                ".h",
+                ".hpp",
+                ".hxx",
+                ".cxx",
+                ".m",
+                ".mm",
+                ".swift",
+                ".rb",
+                ".go",
+                ".cs",
+                ".fs",
+                ".rs",
+                ".dart",
+                ".py",
+                ".ipynb",
+                ".gd",
+                ".pyw",
+                ".pyi",
+                ".pyx",
+                ".pxd",
+                ".pxi",
+                ".rpy",
+                ".html",
+                ".htm",
+                ".xml",
+                ".xhtml",
+                ".jsp",
+                ".asp",
+                ".aspx",
+                ".sql",
+                ".yaml",
+                ".yml",
+                ".sh",
+                ".bash",
+                ".zsh",
+                ".ksh",
+                ".md",
+                ".markdown"
+              ],
+              "languageIds": [
+                "python",
+                "jupyter"
+              ],
+              "map": {
+                "【": "[",
+                "】": "]",
+                "（": "(",
+                "）": ")",
+                "，": ",",
+                "。": ".",
+                "；": ";",
+                "：": ":",
+                "“": "\"",
+                "”": "\"",
+                "‘": "'",
+                "’": "'"
+              }
+            }
+          ],
+          "description": "中文符号自动替换规则。"
+        },
+        "smartInput.vimNormalForceEnglish": {
+          "type": "boolean",
+          "default": true,
+          "description": "Vim NORMAL 模式优先切英文（尽力而为）。"
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "smartInput.showMenu"
+        },
+        {
+          "command": "smartInput.showMenuCompat"
+        }
+      ]
+    }
+  },
+  "keywords": [
+    "ime",
+    "input method",
+    "chinese",
+    "smartime"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.110.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.1",
+    "@typescript-eslint/parser": "^8.57.1",
+    "eslint": "^10.0.3",
+    "typescript": "^5.9.3"
+  }
+}

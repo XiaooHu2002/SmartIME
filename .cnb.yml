@@ -1,0 +1,49 @@
+$:
+  tag_push:
+    - name: Build VSIX And Release
+      stages:
+        - name: Build VSIX
+          image: node:20
+          script: |
+            set -e
+            npm ci
+            npm run compile
+            npm install -g @vscode/vsce
+
+            mkdir -p dist
+
+            TAG="${CNB_BRANCH}"
+            TAG="${TAG#refs/tags/}"
+            if [ -z "$TAG" ]; then
+              TAG="$(node -p "require('./package.json').version")"
+            fi
+
+            vsce package --out "dist/smartime-${TAG}.vsix"
+
+            awk -v ver="$TAG" '
+              BEGIN { in_section = 0 }
+              $0 ~ ("^##[[:space:]]*\\[?" ver "\\]?") {
+                in_section = 1
+                print
+                next
+              }
+              in_section && $0 ~ /^##[[:space:]]+/ { exit }
+              in_section { print }
+            ' CHANGELOG.md > RELEASE_NOTES.md
+
+            if [ ! -s RELEASE_NOTES.md ]; then
+              cp CHANGELOG.md RELEASE_NOTES.md
+            fi
+
+        - name: Create Release
+          image: cnbcool/git:latest
+          settings:
+            release:
+              title: "SmartIME ${CNB_BRANCH}"
+              descriptionFromFile: RELEASE_NOTES.md
+
+        - name: Upload VSIX To Release
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - "./dist/*.vsix"
