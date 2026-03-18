@@ -8,6 +8,7 @@ English README: [README.en.md](README.en.md)
 
 - 根据光标上下文自动切换中英文输入态。
 - 识别字符串、单行注释、多行注释、文档注释、其他区域。
+- Windows 下支持 Go 常驻 IME Worker 加速（优先使用，失败自动回退脚本命令）。
 - 光标附近装饰器显示当前输入态（中/英）。
 - 状态栏显示当前输入态与切换原因（切换时优先更新 UI，体感更快）。
 - 支持正则规则（按光标左/右文本匹配）。
@@ -45,6 +46,8 @@ VS Code 扩展无法对所有输入法实现“统一直接控制”。
 Windows 集成说明：
 
 - 默认使用插件内置脚本在同一输入法中切换中/英状态。
+- 若存在 `tools/ime-worker.exe`，会优先走 Go 常驻进程通道（更低延迟）。
+- Go worker 不可用时自动回退到脚本命令，无需手动切换配置。
 - 打包后会一并带上所需工具与脚本，不依赖当前窗口路径。
 - 状态栏默认仅显示 `SmartIME 中/英`。
 
@@ -84,11 +87,15 @@ Windows 集成说明：
 3. F5 调试，改动后在新窗口按 `Ctrl+R` 快速重载
 4. 每次改动后先编译再验证交互
 
+若修改了 Go Worker：
+
+- 执行 `npm run build:ime-worker` 重新编译 `tools/ime-worker.exe`
+
 ## Windows 示例命令（可选）
 
-当前默认（推荐）是插件内置脚本模式，按 `get / zh / en` 处理：
+当前默认（推荐）优先 Go Worker；脚本命令用于回退，按 `get / zh / en` 处理：
 
-- getStateCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 get`
-- switchToChineseCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 zh`
-- switchToEnglishCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 en`
+- getStateCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 get`
+- switchToChineseCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 zh`
+- switchToEnglishCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 en`
 

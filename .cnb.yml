@@ -2,6 +2,12 @@ $:
   tag_push:
     - name: Build VSIX And Release
       stages:
+        - name: Build Go IME Worker
+          image: golang:1.22
+          script: |
+            set -e
+            go build -C tools/ime-worker -o ../ime-worker.exe .
+
         - name: Build VSIX
           image: node:20
           script: |

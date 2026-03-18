@@ -8,6 +8,7 @@ A VS Code extension that helps Chinese-native developers auto-switch IME by edit
 
 - Auto-switch IME by cursor context.
 - Detect string, line comment, block comment, doc comment, and other code zones.
+- Windows fast path via persistent Go IME worker (with automatic script fallback).
 - Cursor decoration to display current IME state.
 - Status bar detail shows why mode changed (with faster UI updates during switching).
 - Regex-based matching rules around cursor.
@@ -44,6 +45,8 @@ If commands are empty, indicators can still update, but real OS IME switching ma
 Windows notes:
 
 - By default SmartIME uses the bundled script to switch IME state inside the same IME.
+- If `tools/ime-worker.exe` exists, SmartIME prefers the persistent Go worker path for lower latency.
+- If Go worker is unavailable, SmartIME automatically falls back to script commands.
 - Built-in command style is `get / zh / en`.
 - Status bar is shown as `SmartIME 中/英` by default.
 
@@ -65,6 +68,10 @@ Common performance and realtime settings:
 
 You can also run the Chinese command: `显示 SmartIME 菜单`.
 
+If you changed the Go worker source, rebuild it with:
+
+- `npm run build:ime-worker`
+
 ## Installation
 
 Install from VSIX via Extensions view menu: `...` -> `Install from VSIX...`
@@ -73,8 +80,8 @@ Install from VSIX via Extensions view menu: `...` -> `Install from VSIX...`
 
 ## Windows Command Examples (Optional)
 
-Current default (recommended): bundled script with `get / zh / en`:
+Current default (recommended): Go worker fast path first; script commands are fallback with `get / zh / en`:
 
-- getStateCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File <extensionPath>/tools/ime-mode.ps1 get`
-- switchToChineseCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File <extensionPath>/tools/ime-mode.ps1 zh`
-- switchToEnglishCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File <extensionPath>/tools/ime-mode.ps1 en`
+- getStateCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <extensionPath>/tools/ime-mode.ps1 get`
+- switchToChineseCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <extensionPath>/tools/ime-mode.ps1 zh`
+- switchToEnglishCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <extensionPath>/tools/ime-mode.ps1 en`
