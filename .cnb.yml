@@ -18,7 +18,11 @@ $:
               TAG="$(node -p "require('./package.json').version")"
             fi
 
-            vsce package --out "dist/smartime-${TAG}.vsix"
+            BASE_URL="https://cnb.cool/${CNB_REPO_SLUG}"
+            vsce package \
+              --baseContentUrl "${BASE_URL}/-/blob/${TAG}" \
+              --baseImagesUrl "${BASE_URL}/-/raw/${TAG}" \
+              --out "dist/smartime-${TAG}.vsix"
 
             awk -v ver="$TAG" '
               BEGIN { in_section = 0 }
