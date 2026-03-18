@@ -39,13 +39,6 @@ $:
               cp CHANGELOG.md RELEASE_NOTES.md
             fi
 
-        - name: Create Release
-          image: cnbcool/git:latest
-          settings:
-            release:
-              title: "SmartIME ${CNB_BRANCH}"
-              descriptionFromFile: RELEASE_NOTES.md
-
         - name: Upload VSIX To Release
           image: cnbcool/attachments:latest
           settings:
