@@ -6,6 +6,9 @@ $:
           image: golang:1.22
           script: |
             set -e
+            export GOOS=windows
+            export GOARCH=amd64
+            export CGO_ENABLED=0
             go build -C tools/ime-worker -o ../ime-worker.exe .
 
         - name: Build VSIX
