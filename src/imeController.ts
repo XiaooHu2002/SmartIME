@@ -130,6 +130,14 @@ export class ImeController implements vscode.Disposable {
   }
 
   public async decideByScene(request: SceneDecisionRequest): Promise<{ mode: ImeMode; detail: string } | null> {
+    // 场景已给出强制输入态时，优先本地执行，避免 worker 版本差异导致误判。
+    if (request.forcedIme === "zh" || request.forcedIme === "en") {
+      return {
+        mode: request.forcedIme === "zh" ? "chinese" : "english",
+        detail: `scene-forced:${request.scene}`,
+      };
+    }
+
     if (!this.workerClient?.available) {
       return null;
     }

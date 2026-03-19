@@ -162,13 +162,13 @@
         },
         "smartInput.ime.liveSyncMinIntervalMs": {
           "type": "number",
-          "default": 120,
+          "default": 60,
           "minimum": 20,
           "description": "活动同步最小间隔（毫秒）。值越小跟随越快，但命令调用更频繁。"
         },
         "smartInput.ime.liveSyncDebounceMs": {
           "type": "number",
-          "default": 120,
+          "default": 50,
           "minimum": 0,
           "description": "活动同步防抖（毫秒）。用于减少光标高频移动时的命令抖动。"
         },

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## 0.0.3
 
+- VS Code 自动切换触发链路增强：支持键盘跨行、鼠标跨行、跨文件切换立即重算；同一行鼠标点击位置变化也可触发上下文重算。
+- 手动 Shift 粘性策略优化：同一行内点击/左右移动保持手动态，跨行或切换编辑器后恢复自动判定。
+- SmartIME 默认启用兜底：首次未显式配置时自动写入 `smartInput.enabled=true`，并在关闭时状态栏显示 `SmartIME OFF` + 点击一键启用。
+- 输入态同步提速：`liveSyncMinIntervalMs` 默认改为 60ms，`liveSyncDebounceMs` 默认改为 50ms，worker 模式轮询兜底改为 100ms。
+- 场景决策稳定性增强：当场景请求携带 `forcedIme` 时优先本地决策，避免 worker 版本差异导致误判。
+- JetBrains 适配校验：配置目标平台为 IntelliJ IDEA 2024.1（sinceBuild 241）；本地验证时需使用 JDK 17 + Gradle 8.x，Gradle 9.x 会与 `org.jetbrains.intellij` 1.17.4 不兼容。
+
 - 新增 JetBrains 适配层场景链路：支持默认/注释/字符串/提交/SearchEverywhere/IdeaVim/离开与回到 IDE 策略。
 - JetBrains 设置页新增自定义事件与自定义正则规则列表（增删改、上移下移优先级）。
 - JetBrains 设置页新增正则实时语法校验与无效规则标记，保存时会阻止无效规则落盘。

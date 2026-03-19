@@ -27,10 +27,11 @@ class SmartInputService implements vscode.Disposable {
   private editorInteractionArmed = false;
   private lastActivitySyncAt = 0;
   private lastProgrammaticSwitchAt = 0;
-  private lastMouseCursorAnchor:
+  private lastCursorAnchor:
     | {
       uri: string;
       line: number;
+      character: number;
     }
     | undefined;
   private manualShiftSticky:
@@ -82,6 +83,7 @@ class SmartInputService implements vscode.Disposable {
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.imeController = new ImeController(this.context.extensionPath);
+    void this.ensureEnabledDefaultSetting();
 
     // 状态栏入口：点击可打开插件菜单。
     this.statusBar.command = "smartInput.showMenu";
@@ -106,10 +108,16 @@ class SmartInputService implements vscode.Disposable {
     this.context.subscriptions.push(
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor) {
+          this.lastCursorAnchor = {
+            uri: editor.document.uri.toString(),
+            line: editor.selection.active.line,
+            character: editor.selection.active.character,
+          };
           this.armEditorInteraction();
-          this.scheduleEvaluate("active editor changed");
+          this.scheduleEvaluate("active editor changed", true);
           return;
         }
+        this.lastCursorAnchor = undefined;
         this.disarmEditorInteraction();
       }),
       vscode.window.onDidChangeTextEditorSelection((event) => {
@@ -117,29 +125,39 @@ class SmartInputService implements vscode.Disposable {
         this.renderDecoratorAtLineEnd(this.imeController.mode);
         this.scheduleActivitySync();
 
-        // 仅把“鼠标触发的光标移动”视为场景变更信号；
-        // 键盘方向键与输入导致的光标变化不触发自动切换。
-        if (event.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
-          const current = event.selections[0]?.active;
-          if (!current) {
-            return;
-          }
+        const current = event.selections[0]?.active;
+        if (!current) {
+          return;
+        }
 
-          const uri = event.textEditor.document.uri.toString();
-          const lineChanged =
-            !this.lastMouseCursorAnchor
-            || this.lastMouseCursorAnchor.uri !== uri
-            || this.lastMouseCursorAnchor.line !== current.line;
+        const uri = event.textEditor.document.uri.toString();
+        const prevAnchor = this.lastCursorAnchor;
+        const lineChanged =
+          !prevAnchor
+          || prevAnchor.uri !== uri
+          || prevAnchor.line !== current.line;
+        const positionChanged =
+          !prevAnchor
+          || prevAnchor.uri !== uri
+          || prevAnchor.line !== current.line
+          || prevAnchor.character !== current.character;
 
-          this.lastMouseCursorAnchor = {
-            uri,
-            line: current.line,
-          };
+        this.lastCursorAnchor = {
+          uri,
+          line: current.line,
+          character: current.character,
+        };
 
-          // 只有“鼠标跨行移动”才重算场景，避免同一行内点击引起自动切换抖动。
-          if (lineChanged) {
-            this.scheduleEvaluate("cursor moved by mouse line changed", true);
-          }
+        // 只在“跨行（或跨文件）移动”时重算，避免同一行内频繁抖动。
+        // 这里不区分鼠标/键盘，确保全文件类型一致生效。
+        if (lineChanged) {
+          this.scheduleEvaluate("cursor line changed", true);
+          return;
+        }
+
+        // 鼠标同一行点击到新位置时也重算，解决注释/字符串等区域切换不生效问题。
+        if (event.kind === vscode.TextEditorSelectionChangeKind.Mouse && positionChanged) {
+          this.scheduleEvaluate("cursor mouse clicked", true);
         }
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
@@ -198,10 +216,11 @@ class SmartInputService implements vscode.Disposable {
       vscode.commands.registerCommand("smartInput.showMenu", () => this.showMenu()),
       vscode.commands.registerCommand("smartInput.showMenuCompat", () => this.showMenu()),
       vscode.commands.registerCommand("smartInput.toggleAutoSwitch", () => this.toggleAutoSwitch()),
+      vscode.commands.registerCommand("smartInput.enableAutoSwitch", () => this.enableAutoSwitch()),
       vscode.commands.registerCommand("smartInput.switchToChinese", () => this.forceSwitch("chinese", "manual command")),
       vscode.commands.registerCommand("smartInput.switchToEnglish", () => this.forceSwitch("english", "manual command")),
       vscode.commands.registerCommand("smartInput.openSettings", () => {
-        void vscode.commands.executeCommand("workbench.action.openSettings", "@ext:xiaoo.smartime smartInput");
+        void vscode.commands.executeCommand("workbench.action.openSettings", "@ext:xiaoohu.smartime smartInput");
       }),
     );
 
@@ -231,6 +250,22 @@ class SmartInputService implements vscode.Disposable {
       clearTimeout(this.editorInteractionTimer);
     }
     this.decorationType?.dispose();
+  }
+
+  private async ensureEnabledDefaultSetting(): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration("smartInput");
+    const inspected = cfg.inspect<boolean>("enabled");
+    const hasExplicit = Boolean(
+      inspected?.globalValue !== undefined
+      || inspected?.workspaceValue !== undefined
+      || inspected?.workspaceFolderValue !== undefined,
+    );
+
+    if (hasExplicit) {
+      return;
+    }
+
+    await cfg.update("enabled", true, vscode.ConfigurationTarget.Global);
   }
 
   private armEditorInteraction(): void {
@@ -282,9 +317,8 @@ class SmartInputService implements vscode.Disposable {
       return false;
     }
 
-    const isCursorDrivenReason = reason === "cursor moved by mouse line changed";
-
-    if (!isCursorDrivenReason) {
+    const isNavigationReason = reason === "cursor line changed" || reason === "active editor changed";
+    if (!isNavigationReason) {
       return true;
     }
 
@@ -309,9 +343,6 @@ class SmartInputService implements vscode.Disposable {
     if (!vscode.window.activeTextEditor) {
       return "no active editor";
     }
-    if (!this.editorInteractionArmed) {
-      return "editor not focused";
-    }
     return undefined;
   }
 
@@ -325,7 +356,7 @@ class SmartInputService implements vscode.Disposable {
     const cfg = getSmartInputConfig();
     const intervalMs = cfg.ime.pollingIntervalMs > 0
       ? cfg.ime.pollingIntervalMs
-      : (this.imeController.hasWorker ? 180 : 0);
+      : (this.imeController.hasWorker ? 100 : 0);
 
     if (!imeCmd.getStateCommand || intervalMs <= 0) {
       return;
@@ -1083,6 +1114,15 @@ class SmartInputService implements vscode.Disposable {
     this.updateStatusBar(this.imeController.mode, !current ? "auto switch enabled" : "auto switch disabled");
   }
 
+  private async enableAutoSwitch(): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration("smartInput");
+    const current = cfg.get<boolean>("enabled", true);
+    if (!current) {
+      await cfg.update("enabled", true, vscode.ConfigurationTarget.Global);
+    }
+    this.updateStatusBar(this.imeController.mode, "auto switch enabled");
+  }
+
   private async showMenu(): Promise<void> {
     const items: vscode.QuickPickItem[] = [
       { label: "$(gear) 打开设置", description: "配置 SmartIME" },
@@ -1122,6 +1162,15 @@ class SmartInputService implements vscode.Disposable {
 
   private updateStatusBar(mode: ImeMode, detail: string): void {
     const cfg = getSmartInputConfig();
+
+    if (!cfg.enabled) {
+      this.statusBar.command = "smartInput.enableAutoSwitch";
+      this.statusBar.text = "SmartIME OFF";
+      this.statusBar.tooltip = "自动切换已关闭，点击一键启用";
+      return;
+    }
+
+    this.statusBar.command = "smartInput.showMenu";
     const modeText = mode === "chinese" ? "中" : "英";
     this.statusBar.text = `SmartIME ${modeText}`;
     if (!cfg.showDetailInStatusBar) {
