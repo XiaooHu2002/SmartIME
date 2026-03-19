@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.event.CaretEvent
@@ -82,8 +83,7 @@ class SmartImeService {
         )
 
         // 光标移动：用于注释/字符串/默认区域等高频判定入口。
-        project.messageBus.connect().subscribe(
-            com.intellij.openapi.editor.EditorFactory.TOPIC,
+        EditorFactory.getInstance().addEditorFactoryListener(
             object : com.intellij.openapi.editor.event.EditorFactoryListener {
                 override fun editorCreated(event: com.intellij.openapi.editor.event.EditorFactoryEvent) {
                     event.editor.caretModel.addCaretListener(object : CaretListener {
@@ -102,6 +102,7 @@ class SmartImeService {
                     })
                 }
             },
+            project,
         )
 
         // Action 事件：用于 SearchEverywhere、IdeaVim 或自定义事件场景。
