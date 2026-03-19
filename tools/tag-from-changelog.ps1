@@ -14,7 +14,7 @@ if (!(Test-Path $changelog)) {
     throw "CHANGELOG.md not found: $changelog"
 }
 
-$lines = Get-Content $changelog
+$lines = Get-Content -Path $changelog -Encoding UTF8
 $headerPattern = "^##\s*\[?" + [Regex]::Escape($Tag) + "\]?\s*$"
 $start = -1
 
@@ -48,13 +48,20 @@ if ($tagExists -and -not $Force) {
     throw "Tag already exists locally: $Tag. Use -Force to recreate."
 }
 if ($tagExists -and $Force) {
-    git tag -d $Tag | Out-Null
+    git tag -d $Tag *> $null
 }
 
-git tag -a $Tag -m $notes
+$tmp = Join-Path $env:TEMP ("smartime-tag-notes-" + $Tag + ".txt")
+[System.IO.File]::WriteAllText($tmp, $notes, [System.Text.UTF8Encoding]::new($false))
+git tag -a $Tag -F $tmp
+Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 
 if ($Push) {
-    git push $Remote $Tag
+    if ($Force) {
+        git push --force $Remote $Tag
+    } else {
+        git push $Remote $Tag
+    }
 }
 
 Write-Output "Tag created from CHANGELOG: $Tag"
