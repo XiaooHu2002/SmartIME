@@ -59,5 +59,5 @@ if ($Push) {
 
 Write-Output "Tag created from CHANGELOG: $Tag"
 if ($Push) {
-    Write-Output "Tag pushed to $Remote: $Tag"
+    Write-Output "Tag pushed to ${Remote}: ${Tag}"
 }
