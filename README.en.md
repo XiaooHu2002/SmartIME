@@ -1,10 +1,20 @@
 # SmartIME
 
-A VS Code extension that helps Chinese-native developers auto-switch IME by editor context.
+> This project is entirely implemented using AI. I'm not sure if there are any bugs. I'm a novice and don't know how to program. I wrote this plugin to break the paid mechanism of a certain plugin. After testing, it seems to be able to achieve the basic functions and it's fast!
+
+A smart IME auto-switch extension for developers, focused on reducing interruption while coding.
 
 中文 README: [README.md](README.md)
 
-## Features
+## ✨ What It Is
+
+SmartIME decides Chinese/English input mode based on your current editing context:
+
+- Chinese-friendly in comments and documentation text.
+- English-friendly in code, identifiers, and command input.
+- Respects manual switching as much as possible to avoid aggressive auto revert.
+
+## 🧠 Features
 
 - Auto-switch IME by cursor context.
 - Detect string, line comment, block comment, doc comment, and other code zones.
@@ -15,76 +25,7 @@ A VS Code extension that helps Chinese-native developers auto-switch IME by edit
 - Chinese punctuation auto replacement for selected file types.
 - Optional force English in Vim NORMAL mode (best effort).
 
-## Release Artifacts
-
-This repository now publishes two artifact types via CNB remote build:
-
-- VS Code extension package: `dist/*.vsix`
-- JetBrains plugin package: `dist/*.zip` (built from `jetbrains-adapter`)
-
-Notes:
-
-- `.cnb.yml` runs both packaging stages in the same tag release pipeline.
-- The release step uploads both artifact types as attachments.
-
-## Current Switching Strategy
-
-- Chinese contexts (comment/string): auto switch to Chinese.
-- English code contexts: auto switch to English.
-- After you manually switch to Chinese in code (for example by pressing Shift):
-	- No timer-based auto revert.
-	- You can switch back manually with Shift.
-	- Or move the cursor to an English code position, then SmartIME auto switches back to English.
-- Status bar and cursor decoration try to follow manual Shift changes quickly.
-- Detection runs only when VS Code is focused and you are actively interacting in the code editor (cursor move or typing).
-- Detection is paused when focus moves to Typora, chat panel, sidebar, or other non-editor UI, and resumes quickly after returning to code.
-
-This behavior is designed to avoid interrupting Chinese input while keeping code-writing flow natural.
-
-## Important Note
-
-A VS Code extension cannot directly control every IME implementation in a universal way.
-This project integrates with your local IME toolchain via shell commands.
-
-Please configure:
-
-- smartInput.ime.getStateCommand
-- smartInput.ime.switchToChineseCommand
-- smartInput.ime.switchToEnglishCommand
-
-If commands are empty, indicators can still update, but real OS IME switching may not happen.
-
-Windows notes:
-
-- By default SmartIME uses the bundled script to switch IME state inside the same IME.
-- If `tools/ime-worker.exe` exists, SmartIME prefers the persistent Go worker path for lower latency.
-- If Go worker is unavailable, SmartIME automatically falls back to script commands.
-- Built-in command style is `get / zh / en`.
-- Status bar is shown as `SmartIME 中/英` by default.
-
-Common performance and realtime settings:
-
-- `smartInput.evaluateDebounceMs`
-- `smartInput.ime.pollingIntervalMs`
-- `smartInput.ime.liveSyncOnActivity`
-- `smartInput.ime.liveSyncMinIntervalMs`
-- `smartInput.ime.liveSyncDebounceMs`
-
-## Quick Start
-
-1. Open this project in VS Code.
-2. Run `npm install`.
-3. Run `npm run compile`.
-4. Press `F5` to launch Extension Development Host.
-5. Run `Show Smart Input Pro Menu` from command palette.
-
-You can also run the Chinese command: `显示 SmartIME 菜单`.
-
-If you changed the Go worker source, rebuild it with:
-
-- `npm run build:ime-worker`
-
-## Installation
+## 📦 Installation
 
 ### VS Code
 
@@ -103,6 +44,62 @@ Install from VSIX via Extensions view menu: `...` -> `Install from VSIX...`
 Notes:
 
 - The JetBrains installer package is published as `dist/*.zip` in release artifacts.
+
+### Source Debug Run (for developers)
+
+1. Clone this repository and open it in VS Code.
+2. Run `npm install`.
+3. Run `npm run compile`.
+4. Press `F5` to start Extension Development Host.
+
+## 🚀 Usage
+
+1. Open command palette and run `Show Smart Input Pro Menu` (or `显示 SmartIME 菜单`).
+2. Ensure auto-switch is enabled.
+3. Move across comment/code zones and check status bar `SmartIME 中/英`.
+4. If needed, configure custom IME commands:
+	- `smartInput.ime.getStateCommand`
+	- `smartInput.ime.switchToChineseCommand`
+	- `smartInput.ime.switchToEnglishCommand`
+
+## ⚙️ Common Settings
+
+- `smartInput.evaluateDebounceMs`
+- `smartInput.ime.pollingIntervalMs`
+- `smartInput.ime.liveSyncOnActivity`
+- `smartInput.ime.liveSyncMinIntervalMs`
+- `smartInput.ime.liveSyncDebounceMs`
+
+## 🛠️ Development Guide
+
+### Core Project Structure
+
+- `src/extension.ts`: VS Code event orchestration and scene switching.
+- `src/contextDetector.ts`: editor context detection.
+- `src/imeController.ts`: IME query/switch controller.
+- `tools/ime-worker/main.go`: Go worker for Windows.
+- `jetbrains-adapter/`: JetBrains adapter subproject.
+
+### Daily Workflow
+
+1. Update `package.json` first when adding/changing settings.
+2. Run `npm run compile` after code changes.
+3. Press `F5` to validate behavior in dev host.
+4. Verify key interactions before commit (comment/string/code switching).
+
+### Go Worker Development
+
+- Rebuild worker: `npm run build:ime-worker`
+- Output path: `tools/ime-worker.exe`
+
+## 🏗️ Build And Release
+
+This repository publishes two artifact types through CNB remote build:
+
+- VS Code extension package: `dist/*.vsix`
+- JetBrains plugin package: `dist/*.zip`
+
+The release pipeline is defined in `.cnb.yml`, and tag push will build/upload both artifacts automatically.
 
 ## Windows Command Examples (Optional)
 
