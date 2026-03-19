@@ -1,5 +1,4 @@
 {
-  "smartInput.enabled": true,
   "smartInput.showDetailInStatusBar": false,
   "smartInput.evaluateDebounceMs": 0,
   "smartInput.contextScanLookbackChars": 6000,

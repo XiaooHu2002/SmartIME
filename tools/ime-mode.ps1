@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [ValidateSet("get", "zh", "en")]
-  [string]$Mode
+  [string]$Mode 
 )
 
 $source = @"

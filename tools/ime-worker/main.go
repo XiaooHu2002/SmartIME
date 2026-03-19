@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -51,16 +53,18 @@ type guiThreadInfo struct {
 }
 
 type request struct {
-	ID              int    `json:"id"`
-	Action          string `json:"action"`
-	Scene           string `json:"scene,omitempty"`
-	Zone            string `json:"zone,omitempty"`
-	ToolWindow      string `json:"toolWindow,omitempty"`
-	VimMode         string `json:"vimMode,omitempty"`
-	EventName       string `json:"eventName,omitempty"`
-	LeaveStrategy   string `json:"leaveStrategy,omitempty"`
-	PreferredString string `json:"preferredString,omitempty"`
-	ForcedIme       string `json:"forcedIme,omitempty"`
+	ID              int               `json:"id"`
+	Action          string            `json:"action"`
+	Scene           string            `json:"scene,omitempty"`
+	Zone            string            `json:"zone,omitempty"`
+	ToolWindow      string            `json:"toolWindow,omitempty"`
+	VimMode         string            `json:"vimMode,omitempty"`
+	EventName       string            `json:"eventName,omitempty"`
+	LeaveStrategy   string            `json:"leaveStrategy,omitempty"`
+	PreferredString string            `json:"preferredString,omitempty"`
+	ForcedIme       string            `json:"forcedIme,omitempty"`
+	Text            string            `json:"text,omitempty"`
+	Map             map[string]string `json:"map,omitempty"`
 }
 
 type response struct {
@@ -89,6 +93,8 @@ func main() {
 		)
 		if req.Action == "decide" {
 			out, err = decideByScene(req)
+		} else if req.Action == "mapPunctuation" {
+			out, err = mapPunctuation(req.Text, req.Map)
 		} else {
 			out, err = handleAction(req.Action)
 		}
@@ -98,6 +104,85 @@ func main() {
 		}
 		writeResponse(writer, response{ID: req.ID, OK: true, Output: out})
 	}
+}
+
+type punctuationKey struct {
+	text    string
+	repl    string
+	runes   []rune
+	runeLen int
+}
+
+func mapPunctuation(text string, mapper map[string]string) (string, error) {
+	if text == "" || len(mapper) == 0 {
+		return text, nil
+	}
+
+	keys := make([]punctuationKey, 0, len(mapper))
+	for k, v := range mapper {
+		if k == "" {
+			continue
+		}
+		r := []rune(k)
+		keys = append(keys, punctuationKey{
+			text:    k,
+			repl:    v,
+			runes:   r,
+			runeLen: len(r),
+		})
+	}
+
+	if len(keys) == 0 {
+		return text, nil
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].runeLen == keys[j].runeLen {
+			return keys[i].text < keys[j].text
+		}
+		return keys[i].runeLen > keys[j].runeLen
+	})
+
+	src := []rune(text)
+	if len(src) == 0 {
+		return text, nil
+	}
+
+	var out strings.Builder
+	i := 0
+	for i < len(src) {
+		matched := false
+		for _, key := range keys {
+			if i+key.runeLen > len(src) {
+				continue
+			}
+
+			eq := true
+			for idx := 0; idx < key.runeLen; idx++ {
+				if src[i+idx] != key.runes[idx] {
+					eq = false
+					break
+				}
+			}
+			if !eq {
+				continue
+			}
+
+			out.WriteString(key.repl)
+			i += key.runeLen
+			matched = true
+			break
+		}
+
+		if matched {
+			continue
+		}
+
+		out.WriteRune(src[i])
+		i += 1
+	}
+
+	return out.String(), nil
 }
 
 func writeResponse(writer *bufio.Writer, resp response) {

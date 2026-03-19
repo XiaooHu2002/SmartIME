@@ -136,11 +136,6 @@ class SmartInputService implements vscode.Disposable {
           !prevAnchor
           || prevAnchor.uri !== uri
           || prevAnchor.line !== current.line;
-        const positionChanged =
-          !prevAnchor
-          || prevAnchor.uri !== uri
-          || prevAnchor.line !== current.line
-          || prevAnchor.character !== current.character;
 
         this.lastCursorAnchor = {
           uri,
@@ -152,12 +147,6 @@ class SmartInputService implements vscode.Disposable {
         // 这里不区分鼠标/键盘，确保全文件类型一致生效。
         if (lineChanged) {
           this.scheduleEvaluate("cursor line changed", true);
-          return;
-        }
-
-        // 鼠标同一行点击到新位置时也重算，解决注释/字符串等区域切换不生效问题。
-        if (event.kind === vscode.TextEditorSelectionChangeKind.Mouse && positionChanged) {
-          this.scheduleEvaluate("cursor mouse clicked", true);
         }
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
@@ -168,7 +157,11 @@ class SmartInputService implements vscode.Disposable {
 
         this.armEditorInteraction();
         this.punctuationReplacer
-          .handleChange(event, getSmartInputConfig().punctuationRules)
+          .handleChange(
+            event,
+            getSmartInputConfig().punctuationRules,
+            (text, map) => this.imeController.mapPunctuation(text, map),
+          )
           .catch((error) => console.error(error));
         // 输入文本本身不触发场景重算，避免手动切中文后被立刻抢回英文。
       }),

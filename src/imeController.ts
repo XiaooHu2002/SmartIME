@@ -158,6 +158,26 @@ export class ImeController implements vscode.Disposable {
     }
   }
 
+  public async mapPunctuation(
+    text: string,
+    map: Record<string, string>,
+  ): Promise<string | null> {
+    if (!this.workerClient?.available || !text) {
+      return null;
+    }
+
+    try {
+      const output = await this.workerClient.executeWithPayload(
+        "mapPunctuation",
+        { text, map },
+        200,
+      );
+      return output;
+    } catch {
+      return null;
+    }
+  }
+
   public async switchTo(
     mode: ImeMode,
     switchCommand: string,

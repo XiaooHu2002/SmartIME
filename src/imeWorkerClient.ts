@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 
-type WorkerAction = "get" | "zh" | "en" | "decide";
+type WorkerAction = "get" | "zh" | "en" | "decide" | "mapPunctuation";
 
 interface WorkerRequest {
   id: number;

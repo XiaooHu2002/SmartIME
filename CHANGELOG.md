@@ -4,11 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## 0.0.3
 
-- VS Code 自动切换触发链路增强：支持键盘跨行、鼠标跨行、跨文件切换立即重算；同一行鼠标点击位置变化也可触发上下文重算。
+- VS Code 自动切换触发链路增强：支持键盘跨行、鼠标跨行、跨文件切换立即重算；同一行点击/左右移动不触发自动重算。
 - 手动 Shift 粘性策略优化：同一行内点击/左右移动保持手动态，跨行或切换编辑器后恢复自动判定。
 - SmartIME 默认启用兜底：首次未显式配置时自动写入 `smartInput.enabled=true`，并在关闭时状态栏显示 `SmartIME OFF` + 点击一键启用。
 - 输入态同步提速：`liveSyncMinIntervalMs` 默认改为 60ms，`liveSyncDebounceMs` 默认改为 50ms，worker 模式轮询兜底改为 100ms。
 - 场景决策稳定性增强：当场景请求携带 `forcedIme` 时优先本地决策，避免 worker 版本差异导致误判。
+- 中文符号自动替换增强：补齐成对与变体符号映射（如 `“”`、`‘’`、`【】`、`「」`、`『』`、`《》`、`〈〉`、`——`、`……` 等）。
+- 中文输入法适配增强：针对微信输入法等“自动补右符号并将光标移到中间”的上屏行为优化替换时机与范围，减少只替换第一个符号的问题。
+- 符号替换稳定性增强：替换器引入 FIFO 事件队列与高频输入保护，快速连续输入下减少漏替与串改。
+- 符号替换分流增强：入口保留 TS，新增 Go worker `mapPunctuation` 动作用于大文本映射分流，并保留本地回退。
 - JetBrains 适配校验：配置目标平台为 IntelliJ IDEA 2024.1（sinceBuild 241）；本地验证时需使用 JDK 17 + Gradle 8.x，Gradle 9.x 会与 `org.jetbrains.intellij` 1.17.4 不兼容。
 
 - 新增 JetBrains 适配层场景链路：支持默认/注释/字符串/提交/SearchEverywhere/IdeaVim/离开与回到 IDE 策略。
