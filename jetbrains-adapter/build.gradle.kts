@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "cn.xiaoo.smartime"
-version = "0.0.2"
+version = "0.0.3"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,6 @@ intellij {
     // 说明：目标 IDE 版本可按需调整，先与较新稳定版对齐。
     version.set("2024.2")
     type.set("IC")
-    plugins.set(listOf("IdeaVIM"))
 }
 
 dependencies {
