@@ -27,6 +27,12 @@ class SmartInputService implements vscode.Disposable {
   private editorInteractionArmed = false;
   private lastActivitySyncAt = 0;
   private lastProgrammaticSwitchAt = 0;
+  private lastMouseCursorAnchor:
+    | {
+      uri: string;
+      line: number;
+    }
+    | undefined;
   private manualShiftSticky:
     | {
       mode: ImeMode;
@@ -114,7 +120,26 @@ class SmartInputService implements vscode.Disposable {
         // 仅把“鼠标触发的光标移动”视为场景变更信号；
         // 键盘方向键与输入导致的光标变化不触发自动切换。
         if (event.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
-          this.scheduleEvaluate("cursor moved by mouse", true);
+          const current = event.selections[0]?.active;
+          if (!current) {
+            return;
+          }
+
+          const uri = event.textEditor.document.uri.toString();
+          const lineChanged =
+            !this.lastMouseCursorAnchor
+            || this.lastMouseCursorAnchor.uri !== uri
+            || this.lastMouseCursorAnchor.line !== current.line;
+
+          this.lastMouseCursorAnchor = {
+            uri,
+            line: current.line,
+          };
+
+          // 只有“鼠标跨行移动”才重算场景，避免同一行内点击引起自动切换抖动。
+          if (lineChanged) {
+            this.scheduleEvaluate("cursor moved by mouse line changed", true);
+          }
         }
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
@@ -257,22 +282,19 @@ class SmartInputService implements vscode.Disposable {
       return false;
     }
 
-    const isCursorDrivenReason =
-      reason === "cursor moved by mouse"
-      || reason === "active editor changed"
-      || reason === "window focused";
+    const isCursorDrivenReason = reason === "cursor moved by mouse line changed";
 
     if (!isCursorDrivenReason) {
       return true;
     }
 
     const position = editor.selection.active;
-    const sameAnchor =
+    const sameLine =
       editor.document.uri.toString() === this.manualShiftSticky.uri
-      && position.line === this.manualShiftSticky.line
-      && position.character === this.manualShiftSticky.character;
+      && position.line === this.manualShiftSticky.line;
 
-    if (sameAnchor) {
+    // 手动 Shift 后，在同一行内点击/移动不自动改回；跨行后再恢复自动切换。
+    if (sameLine) {
       return true;
     }
 
@@ -739,19 +761,6 @@ class SmartInputService implements vscode.Disposable {
     }
 
     const editorRule = this.matchEditorRule(filePath);
-    if (!editorRule) {
-      this.lastDesiredCache = {
-        uri: document.uri.toString(),
-        version: document.version,
-        line: position.line,
-        character: position.character,
-        configEpoch: this.configEpoch,
-        vimNormalForceEnglish,
-        vimNormal,
-        result: null,
-      };
-      return null;
-    }
 
     // 未命中正则时，回退到“文件类型 + 上下文区域”规则。
     const zone = detectContextZone(document, position, getSmartInputConfig().contextScanLookbackChars);
@@ -783,10 +792,12 @@ class SmartInputService implements vscode.Disposable {
       return goDecision;
     }
 
-    const mode = this.resolveModeByZone(editorRule, zone, cfg);
+    const mode = editorRule
+      ? this.resolveModeByZone(editorRule, zone, cfg)
+      : this.resolveModeBySceneDefaults(zone, cfg);
     const result = {
       mode,
-      detail: `${editorRule.name} -> ${zone}`,
+      detail: editorRule ? `${editorRule.name} -> ${zone}` : `scene-default -> ${zone}`,
     };
     this.lastDesiredCache = {
       uri: document.uri.toString(),
@@ -832,6 +843,20 @@ class SmartInputService implements vscode.Disposable {
       case "other":
       default:
         return rule.other ?? cfg.scene.defaultIme;
+    }
+  }
+
+  private resolveModeBySceneDefaults(zone: ContextZone, cfg: SmartInputConfig): ImeMode {
+    switch (zone) {
+      case "string":
+        return cfg.scene.stringIme;
+      case "lineComment":
+      case "blockComment":
+      case "docComment":
+        return cfg.scene.commentIme;
+      case "other":
+      default:
+        return cfg.scene.defaultIme;
     }
   }
 
@@ -946,10 +971,14 @@ class SmartInputService implements vscode.Disposable {
       return null;
     }
 
-    const text = document.getText();
     const offset = document.offsetAt(position);
-    const left = text.slice(0, offset);
-    const right = text.slice(offset);
+    const windowChars = Math.max(2048, getSmartInputConfig().contextScanLookbackChars);
+    const docEndOffset = document.offsetAt(document.lineAt(document.lineCount - 1).range.end);
+    const leftStartOffset = Math.max(0, offset - windowChars);
+    const rightEndOffset = Math.min(docEndOffset, offset + windowChars);
+
+    const left = document.getText(new vscode.Range(document.positionAt(leftStartOffset), position));
+    const right = document.getText(new vscode.Range(position, document.positionAt(rightEndOffset)));
 
     for (const item of candidates) {
       if (!item.leftReg || !item.rightReg) {
