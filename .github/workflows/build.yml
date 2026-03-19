@@ -1,0 +1,79 @@
+name: Build SmartIME
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-vscode:
+    name: Build VS Code Extension
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build IME worker
+        run: npm run build:ime-worker
+
+      - name: Compile extension
+        run: npm run compile
+
+      - name: Package VSIX
+        run: |
+          npx @vscode/vsce package --out dist/smartime-${{ github.ref_name }}.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartime-vsix
+          path: dist/*.vsix
+
+  build-jetbrains:
+    name: Build JetBrains Adapter
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Build JetBrains plugin
+        run: gradle -p jetbrains-adapter buildPlugin --stacktrace
+
+      - name: Upload JetBrains artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartime-jetbrains
+          path: jetbrains-adapter/build/distributions/*.zip
