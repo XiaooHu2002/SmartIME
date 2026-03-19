@@ -1,6 +1,5 @@
 package cn.xiaoo.smartime
 
-import com.intellij.ide.actions.searcheverywhere.SearchEverywhereAction
 import com.intellij.openapi.actionSystem.ex.AnActionListener
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.components.service
@@ -15,7 +14,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import com.intellij.openapi.wm.ToolWindowManagerListener
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
@@ -100,7 +99,7 @@ class SmartImeService {
                             ) ?: return
                             handleSceneRequest(project, req, "caret moved")
                         }
-                    }, event.editor.disposable)
+                    })
                 }
             },
         )
@@ -131,12 +130,14 @@ class SmartImeService {
 
         // 工具窗口场景：当工具窗口焦点变化时可切换到预设输入法。
         project.messageBus.connect().subscribe(
-            ToolWindowManagerListener.TOPIC,
-            ToolWindowManagerListener { manager ->
-                val activeToolWindow = manager.activeToolWindowId
-                if (activeToolWindow != null) {
-                    val req = engine?.buildRequest(JetBrainsSceneContext(toolWindowId = activeToolWindow)) ?: return@ToolWindowManagerListener
-                    handleSceneRequest(project, req, "tool window=$activeToolWindow")
+            com.intellij.openapi.wm.ex.ToolWindowManagerListener.TOPIC,
+            object : com.intellij.openapi.wm.ex.ToolWindowManagerListener {
+                override fun stateChanged(toolWindowManager: ToolWindowManager) {
+                    val activeToolWindow = toolWindowManager.activeToolWindowId
+                    if (activeToolWindow != null) {
+                        val req = engine?.buildRequest(JetBrainsSceneContext(toolWindowId = activeToolWindow)) ?: return
+                        handleSceneRequest(project, req, "tool window=$activeToolWindow")
+                    }
                 }
             },
         )
@@ -212,7 +213,8 @@ class SmartImeService {
         actionName: String,
         action: com.intellij.openapi.actionSystem.AnAction,
     ): Boolean {
-        if (action is SearchEverywhereAction) {
+        val className = action.javaClass.name.lowercase()
+        if (className.contains("searcheverywhere")) {
             return true
         }
         val n = actionName.lowercase()

@@ -13,7 +13,7 @@ repositories {
 
 intellij {
     // 说明：目标 IDE 版本可按需调整，先与较新稳定版对齐。
-    version.set("2024.2")
+    version.set("2024.1")
     type.set("IC")
 }
 
@@ -23,7 +23,7 @@ dependencies {
 
 tasks {
     patchPluginXml {
-        sinceBuild.set("242")
+        sinceBuild.set("241")
         untilBuild.set("252.*")
         pluginDescription.set(
             """
