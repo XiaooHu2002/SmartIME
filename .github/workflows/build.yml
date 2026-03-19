@@ -82,7 +82,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
     needs:
       - build-vscode
       - build-jetbrains
@@ -107,23 +107,46 @@ jobs:
       - name: Build release notes from CHANGELOG
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          awk -v tag="$TAG" '
-            $0 ~ "^##[[:space:]]+" tag "[[:space:]]*$" { in_section=1; next }
-            in_section && $0 ~ "^##[[:space:]]+" { exit }
-            in_section { print }
-          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            awk -v tag="$TAG" '
+              $0 ~ "^##[[:space:]]+" tag "[[:space:]]*$" { in_section=1; next }
+              in_section && $0 ~ "^##[[:space:]]+" { exit }
+              in_section { print }
+            ' CHANGELOG.md > RELEASE_NOTES.md
 
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "Release $TAG" > RELEASE_NOTES.md
+            if [ ! -s RELEASE_NOTES.md ]; then
+              echo "Release $TAG" > RELEASE_NOTES.md
+              echo >> RELEASE_NOTES.md
+              echo "See CHANGELOG.md for details." >> RELEASE_NOTES.md
+            fi
+          else
+            echo "Automated main build release for commit ${GITHUB_SHA}." > RELEASE_NOTES.md
             echo >> RELEASE_NOTES.md
-            echo "See CHANGELOG.md for details." >> RELEASE_NOTES.md
+            echo "This is a pre-release generated after both VSIX and JetBrains artifacts built successfully." >> RELEASE_NOTES.md
+          fi
+
+      - name: Resolve release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "release_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_name=main-build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "release_name=main-build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release_meta.outputs.tag_name }}
+          name: ${{ steps.release_meta.outputs.release_name }}
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
           files: |
             release-assets/vsix/*.vsix
