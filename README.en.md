@@ -15,6 +15,18 @@ A VS Code extension that helps Chinese-native developers auto-switch IME by edit
 - Chinese punctuation auto replacement for selected file types.
 - Optional force English in Vim NORMAL mode (best effort).
 
+## Release Artifacts
+
+This repository now publishes two artifact types via CNB remote build:
+
+- VS Code extension package: `dist/*.vsix`
+- JetBrains plugin package: `dist/*.zip` (built from `jetbrains-adapter`)
+
+Notes:
+
+- `.cnb.yml` runs both packaging stages in the same tag release pipeline.
+- The release step uploads both artifact types as attachments.
+
 ## Current Switching Strategy
 
 - Chinese contexts (comment/string): auto switch to Chinese.
@@ -74,9 +86,23 @@ If you changed the Go worker source, rebuild it with:
 
 ## Installation
 
+### VS Code
+
 Install from VSIX via Extensions view menu: `...` -> `Install from VSIX...`
 
 ![VSIX install](./README.assets/image-20260318162132151.png)
+
+### JetBrains (IntelliJ IDEA / PyCharm / WebStorm)
+
+1. Download the JetBrains plugin package `smartime-*.zip` from release assets.
+2. Open your JetBrains IDE and go to `Settings/Preferences -> Plugins`.
+3. Click the gear icon and select `Install Plugin from Disk...`.
+4. Select `smartime-*.zip` and confirm installation.
+5. Restart the IDE.
+
+Notes:
+
+- The JetBrains installer package is published as `dist/*.zip` in release artifacts.
 
 ## Windows Command Examples (Optional)
 

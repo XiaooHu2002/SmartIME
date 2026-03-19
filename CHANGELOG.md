@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.3
+
+- 新增 JetBrains 适配层场景链路：支持默认/注释/字符串/提交/SearchEverywhere/IdeaVim/离开与回到 IDE 策略。
+- JetBrains 设置页新增自定义事件与自定义正则规则列表（增删改、上移下移优先级）。
+- JetBrains 设置页新增正则实时语法校验与无效规则标记，保存时会阻止无效规则落盘。
+- VS Code 侧补齐统一场景配置：`scene.defaultIme/commentIme/stringIme/commitIme/searchEverywhereIme/ideaVimNormalIme/leaveStrategy/enterIdeMode/toolWindowImeMap`。
+- CNB 发布流程支持双产物远端构建与上传：`dist/*.vsix` 与 `dist/*.zip`（JetBrains 插件包）。
+
 ## 0.0.2
 
 - 重构输入法执行链路：引入 Go 常驻 worker（`tools/ime-worker.exe`）处理 `get/zh/en`，降低切换延迟。

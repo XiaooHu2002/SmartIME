@@ -3,11 +3,12 @@ import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 
-type WorkerAction = "get" | "zh" | "en";
+type WorkerAction = "get" | "zh" | "en" | "decide";
 
 interface WorkerRequest {
   id: number;
   action: WorkerAction;
+  [key: string]: unknown;
 }
 
 interface WorkerResponse {
@@ -47,6 +48,10 @@ export class ImeWorkerClient {
   }
 
   public async execute(action: WorkerAction, timeoutMs = 400): Promise<string> {
+    return this.executeWithPayload(action, {}, timeoutMs);
+  }
+
+  public async executeWithPayload(action: string, payload: Record<string, unknown>, timeoutMs = 400): Promise<string> {
     if (!this.executablePath) {
       throw new Error("ime worker executable not found");
     }
@@ -56,8 +61,8 @@ export class ImeWorkerClient {
     const id = this.nextId;
     this.nextId += 1;
 
-    const payload: WorkerRequest = { id, action };
-    const line = `${JSON.stringify(payload)}\n`;
+    const request: WorkerRequest = { id, action: action as WorkerAction, ...payload };
+    const line = `${JSON.stringify(request)}\n`;
 
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {

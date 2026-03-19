@@ -5,10 +5,13 @@ import { detectContextZone } from "./contextDetector";
 import { getSmartInputConfig, matchByFileTypeOrLanguage } from "./config";
 import { ImeController, ImeDiagnosticTrace } from "./imeController";
 import { PunctuationReplacer } from "./punctuationReplacer";
-import { ContextZone, EditorRule, ImeMode, RegexRule } from "./types";
+import { buildSceneRequestByZone } from "./sceneProtocol";
+import { ContextZone, EditorRule, ImeMode, RegexRule, SmartInputConfig } from "./types";
 
 // 统一编排：监听编辑器事件 -> 计算目标输入态 -> 调用输入法控制层。
 class SmartInputService implements vscode.Disposable {
+  private static readonly EDITOR_INTERACTION_HOLD_MS = 800;
+
   private readonly imeController: ImeController;
   private readonly punctuationReplacer = new PunctuationReplacer();
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -24,7 +27,14 @@ class SmartInputService implements vscode.Disposable {
   private editorInteractionArmed = false;
   private lastActivitySyncAt = 0;
   private lastProgrammaticSwitchAt = 0;
-  private manualChineseSticky = false;
+  private manualShiftSticky:
+    | {
+      mode: ImeMode;
+      uri: string;
+      line: number;
+      character: number;
+    }
+    | undefined;
   private configEpoch = 0;
   private lastVimModeCheckAt = 0;
   private lastVimModeValue = false;
@@ -60,8 +70,6 @@ class SmartInputService implements vscode.Disposable {
       result: { mode: ImeMode; detail: string } | null;
     }
     | undefined;
-  private static readonly EDITOR_INTERACTION_HOLD_MS = 800;
-
   private get workspacePath(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
   }
@@ -98,11 +106,16 @@ class SmartInputService implements vscode.Disposable {
         }
         this.disarmEditorInteraction();
       }),
-      vscode.window.onDidChangeTextEditorSelection(() => {
+      vscode.window.onDidChangeTextEditorSelection((event) => {
         this.armEditorInteraction();
         this.renderDecoratorAtLineEnd(this.imeController.mode);
-        this.scheduleEvaluate("cursor moved", true);
         this.scheduleActivitySync();
+
+        // 仅把“鼠标触发的光标移动”视为场景变更信号；
+        // 键盘方向键与输入导致的光标变化不触发自动切换。
+        if (event.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
+          this.scheduleEvaluate("cursor moved by mouse", true);
+        }
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
         const activeEditor = vscode.window.activeTextEditor;
@@ -114,10 +127,11 @@ class SmartInputService implements vscode.Disposable {
         this.punctuationReplacer
           .handleChange(event, getSmartInputConfig().punctuationRules)
           .catch((error) => console.error(error));
-        this.scheduleEvaluate("text changed", true);
+        // 输入文本本身不触发场景重算，避免手动切中文后被立刻抢回英文。
       }),
       vscode.window.onDidChangeWindowState((state) => {
         if (!state.focused) {
+          void this.applyLeaveIdeStrategy();
           this.disarmEditorInteraction();
           if (this.evaluateTimer) {
             clearTimeout(this.evaluateTimer);
@@ -130,11 +144,18 @@ class SmartInputService implements vscode.Disposable {
           this.updateStatusBar(this.imeController.mode, "paused: window not focused");
           return;
         }
+        void this.applyEnterIdeMode();
         if (vscode.window.activeTextEditor) {
           this.armEditorInteraction();
           this.scheduleActivitySync();
           this.scheduleEvaluate("window focused");
         }
+      }),
+      vscode.window.onDidChangeActiveTerminal((terminal) => {
+        if (!terminal) {
+          return;
+        }
+        void this.applyToolWindowScene("Terminal");
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("smartInput")) {
@@ -207,6 +228,58 @@ class SmartInputService implements vscode.Disposable {
     }
   }
 
+  private setManualShiftSticky(mode: ImeMode, editor: vscode.TextEditor): void {
+    const position = editor.selection.active;
+    this.manualShiftSticky = {
+      mode,
+      uri: editor.document.uri.toString(),
+      line: position.line,
+      character: position.character,
+    };
+  }
+
+  private shouldHoldManualShiftSticky(
+    reason: string,
+    editor: vscode.TextEditor,
+    desiredMode: ImeMode,
+  ): boolean {
+    if (!this.manualShiftSticky) {
+      return false;
+    }
+
+    // 若当前状态已经不再是手动粘性时的模式，则清理粘性标记。
+    if (this.imeController.mode !== this.manualShiftSticky.mode) {
+      this.manualShiftSticky = undefined;
+      return false;
+    }
+
+    if (desiredMode === this.imeController.mode) {
+      return false;
+    }
+
+    const isCursorDrivenReason =
+      reason === "cursor moved by mouse"
+      || reason === "active editor changed"
+      || reason === "window focused";
+
+    if (!isCursorDrivenReason) {
+      return true;
+    }
+
+    const position = editor.selection.active;
+    const sameAnchor =
+      editor.document.uri.toString() === this.manualShiftSticky.uri
+      && position.line === this.manualShiftSticky.line
+      && position.character === this.manualShiftSticky.character;
+
+    if (sameAnchor) {
+      return true;
+    }
+
+    this.manualShiftSticky = undefined;
+    return false;
+  }
+
   private getPauseReason(): string | undefined {
     if (!vscode.window.state.focused) {
       return "window not focused";
@@ -228,7 +301,11 @@ class SmartInputService implements vscode.Disposable {
 
     const imeCmd = this.resolveImeCommands();
     const cfg = getSmartInputConfig();
-    if (!imeCmd.getStateCommand || cfg.ime.pollingIntervalMs <= 0) {
+    const intervalMs = cfg.ime.pollingIntervalMs > 0
+      ? cfg.ime.pollingIntervalMs
+      : (this.imeController.hasWorker ? 180 : 0);
+
+    if (!imeCmd.getStateCommand || intervalMs <= 0) {
       return;
     }
 
@@ -244,7 +321,7 @@ class SmartInputService implements vscode.Disposable {
           cfg.ime.englishStatePatterns,
         )
         .catch(() => undefined);
-    }, cfg.ime.pollingIntervalMs);
+      }, intervalMs);
   }
 
   private resolveImeCommands(): {
@@ -485,20 +562,11 @@ class SmartInputService implements vscode.Disposable {
     if (!editor) {
       return;
     }
-    const desired = await this.resolveDesiredMode(editor, cfg.vimNormalForceEnglish);
-    if (!desired) {
-      return;
-    }
 
-    // 用户手动切到中文且当前处于英文代码目标场景时，进入“中文粘性”模式：
-    // 不按时间自动回切，仅在后续光标移动到英文代码位置时回切。
-    if (actual === "chinese" && desired.mode === "english") {
-      this.manualChineseSticky = true;
-    }
-
-    if (actual === "english") {
-      this.manualChineseSticky = false;
-    }
+    // 只要识别到系统输入态被手动改变（且非程序触发的短窗口），
+    // 就冻结自动回切，直到光标真正移动到新位置。
+    this.setManualShiftSticky(actual, editor);
+    this.updateStatusBar(actual, "manual shift detected");
   }
 
   private async evaluateAndSwitch(reason: string): Promise<void> {
@@ -521,24 +589,15 @@ class SmartInputService implements vscode.Disposable {
       return;
     }
 
-    const desired = await this.resolveDesiredMode(editor, cfg.vimNormalForceEnglish);
+    const desired = await this.resolveDesiredMode(editor, cfg);
     if (!desired) {
       this.updateStatusBar(this.imeController.mode, "no matching rule");
       return;
     }
 
-    // 符合程序员手感：代码区手动切中文后，不按时间自动回切；
-    // 仅当后续光标移动到英文代码位置时，才恢复自动回英文。
-    if (desired.mode === "english" && this.imeController.mode === "chinese" && this.manualChineseSticky) {
-      const isCursorDrivenReason =
-        reason === "cursor moved"
-        || reason === "active editor changed"
-        || reason === "window focused";
-      if (!isCursorDrivenReason) {
-        this.updateStatusBar(this.imeController.mode, "manual chinese sticky");
-        return;
-      }
-      this.manualChineseSticky = false;
+    if (this.shouldHoldManualShiftSticky(reason, editor, desired.mode)) {
+      this.updateStatusBar(this.imeController.mode, "manual shift sticky");
+      return;
     }
 
     // 目标态和当前本地态一致时直接返回，避免重复执行外部命令。
@@ -569,21 +628,61 @@ class SmartInputService implements vscode.Disposable {
       return;
     }
 
-    if (desired.mode === "english") {
-      this.manualChineseSticky = false;
-    }
+    this.manualShiftSticky = undefined;
 
     this.updateStatusBar(desired.mode, `${desired.detail}, ${reason}`);
   }
 
   private async resolveDesiredMode(
     editor: vscode.TextEditor,
-    vimNormalForceEnglish: boolean,
+    cfg: SmartInputConfig,
   ): Promise<{ mode: ImeMode; detail: string } | null> {
     const position = editor.selection.active;
     const document = editor.document;
     const filePath = document.fileName;
+    const vimNormalForceEnglish = cfg.vimNormalForceEnglish;
     const vimNormal = vimNormalForceEnglish ? await this.getVimNormalModeCached() : false;
+
+    if (this.isSearchEverywhereDocument(document)) {
+      const goDecision = await this.imeController.decideByScene({
+        scene: "SEARCH_EVERYWHERE",
+        forcedIme: this.toSceneIme(cfg.scene.searchEverywhereIme),
+      });
+      const result = goDecision ?? {
+        mode: cfg.scene.searchEverywhereIme,
+        detail: "search everywhere",
+      };
+      this.lastDesiredCache = {
+        uri: document.uri.toString(),
+        version: document.version,
+        line: position.line,
+        character: position.character,
+        configEpoch: this.configEpoch,
+        vimNormalForceEnglish,
+        vimNormal,
+        result,
+      };
+      return result;
+    }
+
+    if (document.languageId === "scminput") {
+      const goDecision = await this.imeController.decideByScene({
+        scene: "COMMIT",
+        forcedIme: this.toSceneIme(cfg.scene.commitIme),
+      });
+      const result = goDecision ?? { mode: cfg.scene.commitIme, detail: "scm commit input" };
+      this.lastDesiredCache = {
+        uri: document.uri.toString(),
+        version: document.version,
+        line: position.line,
+        character: position.character,
+        configEpoch: this.configEpoch,
+        vimNormalForceEnglish,
+        vimNormal,
+        result,
+      };
+      return result;
+    }
 
     const cached = this.lastDesiredCache;
     if (
@@ -600,7 +699,12 @@ class SmartInputService implements vscode.Disposable {
     }
 
     if (vimNormal) {
-      const result = { mode: "english" as ImeMode, detail: "vim normal mode" };
+      const goDecision = await this.imeController.decideByScene({
+        scene: "IDEA_VIM_NORMAL",
+        vimMode: "normal",
+        forcedIme: this.toSceneIme(cfg.scene.ideaVimNormalIme),
+      });
+      const result = goDecision ?? { mode: cfg.scene.ideaVimNormalIme, detail: "vim normal mode" };
       this.lastDesiredCache = {
         uri: document.uri.toString(),
         version: document.version,
@@ -616,6 +720,11 @@ class SmartInputService implements vscode.Disposable {
 
     const byRegex = this.matchRegexRules(filePath, document, position);
     if (byRegex) {
+      const goDecision = await this.imeController.decideByScene({
+        scene: "CUSTOM_REGEX",
+        forcedIme: byRegex.mode === "chinese" ? "zh" : "en",
+      });
+      const result = goDecision ?? byRegex;
       this.lastDesiredCache = {
         uri: document.uri.toString(),
         version: document.version,
@@ -624,9 +733,9 @@ class SmartInputService implements vscode.Disposable {
         configEpoch: this.configEpoch,
         vimNormalForceEnglish,
         vimNormal,
-        result: byRegex,
+        result,
       };
-      return byRegex;
+      return result;
     }
 
     const editorRule = this.matchEditorRule(filePath);
@@ -647,7 +756,34 @@ class SmartInputService implements vscode.Disposable {
     // 未命中正则时，回退到“文件类型 + 上下文区域”规则。
     const zone = detectContextZone(document, position, getSmartInputConfig().contextScanLookbackChars);
 
-    const mode = this.resolveModeByZone(editorRule, zone);
+    const sceneReq = buildSceneRequestByZone(zone, vimNormal);
+    if (sceneReq.scene === "COMMENT") {
+      sceneReq.forcedIme = this.toSceneIme(cfg.scene.commentIme);
+    } else if (sceneReq.scene === "STRING") {
+      sceneReq.preferredString = this.toSceneIme(cfg.scene.stringIme);
+      sceneReq.forcedIme = this.toSceneIme(cfg.scene.stringIme);
+    } else if (sceneReq.scene === "DEFAULT") {
+      sceneReq.forcedIme = this.toSceneIme(cfg.scene.defaultIme);
+    } else if (sceneReq.scene === "IDEA_VIM_NORMAL") {
+      sceneReq.forcedIme = this.toSceneIme(cfg.scene.ideaVimNormalIme);
+    }
+
+    const goDecision = await this.imeController.decideByScene(sceneReq);
+    if (goDecision) {
+      this.lastDesiredCache = {
+        uri: document.uri.toString(),
+        version: document.version,
+        line: position.line,
+        character: position.character,
+        configEpoch: this.configEpoch,
+        vimNormalForceEnglish,
+        vimNormal,
+        result: goDecision,
+      };
+      return goDecision;
+    }
+
+    const mode = this.resolveModeByZone(editorRule, zone, cfg);
     const result = {
       mode,
       detail: `${editorRule.name} -> ${zone}`,
@@ -683,20 +819,121 @@ class SmartInputService implements vscode.Disposable {
     );
   }
 
-  private resolveModeByZone(rule: EditorRule, zone: ContextZone): ImeMode {
+  private resolveModeByZone(rule: EditorRule, zone: ContextZone, cfg: SmartInputConfig): ImeMode {
     switch (zone) {
       case "string":
-        return rule.string ?? rule.other;
+        return rule.string ?? cfg.scene.stringIme;
       case "lineComment":
-        return rule.lineComment ?? rule.other;
+        return rule.lineComment ?? cfg.scene.commentIme;
       case "blockComment":
-        return rule.blockComment ?? rule.other;
+        return rule.blockComment ?? cfg.scene.commentIme;
       case "docComment":
-        return rule.docComment ?? rule.blockComment ?? rule.other;
+        return rule.docComment ?? rule.blockComment ?? cfg.scene.commentIme;
       case "other":
       default:
-        return rule.other;
+        return rule.other ?? cfg.scene.defaultIme;
     }
+  }
+
+  private toSceneIme(mode: ImeMode): "zh" | "en" {
+    return mode === "chinese" ? "zh" : "en";
+  }
+
+  private fromSceneIme(mode: "zh" | "en"): ImeMode {
+    return mode === "zh" ? "chinese" : "english";
+  }
+
+  private isSearchEverywhereDocument(document: vscode.TextDocument): boolean {
+    const languageId = String(document.languageId || "").toLowerCase();
+    const scheme = String(document.uri.scheme || "").toLowerCase();
+    if (languageId === "search-result" || scheme === "search-editor") {
+      return true;
+    }
+    return false;
+  }
+
+  private async applyLeaveIdeStrategy(): Promise<void> {
+    const cfg = getSmartInputConfig();
+    const strategy = cfg.scene.leaveStrategy;
+    if (strategy === "none") {
+      return;
+    }
+
+    const goDecision = await this.imeController.decideByScene({
+      scene: "LEAVE_IDE",
+      leaveStrategy: strategy,
+    });
+    if (goDecision) {
+      await this.applyDirectMode(goDecision.mode, `leave ide (${strategy})`);
+      return;
+    }
+
+    if (strategy === "en" || strategy === "zh") {
+      await this.applyDirectMode(this.fromSceneIme(strategy), `leave ide (${strategy})`);
+    }
+  }
+
+  private async applyEnterIdeMode(): Promise<void> {
+    const cfg = getSmartInputConfig();
+    if (cfg.scene.enterIdeMode === "keep") {
+      return;
+    }
+
+    const forcedIme = cfg.scene.enterIdeMode;
+    const goDecision = await this.imeController.decideByScene({
+      scene: "DEFAULT",
+      forcedIme,
+    });
+    if (goDecision) {
+      await this.applyDirectMode(goDecision.mode, `enter ide (${forcedIme})`);
+      return;
+    }
+
+    await this.applyDirectMode(this.fromSceneIme(forcedIme), `enter ide (${forcedIme})`);
+  }
+
+  private async applyToolWindowScene(toolWindow: string): Promise<void> {
+    const cfg = getSmartInputConfig();
+    const forcedIme = cfg.scene.toolWindowImeMap[toolWindow];
+    if (!forcedIme) {
+      return;
+    }
+
+    const goDecision = await this.imeController.decideByScene({
+      scene: "TOOL_WINDOW",
+      toolWindow,
+      forcedIme,
+    });
+    if (goDecision) {
+      await this.applyDirectMode(goDecision.mode, `tool window (${toolWindow})`);
+      return;
+    }
+
+    await this.applyDirectMode(this.fromSceneIme(forcedIme), `tool window (${toolWindow})`);
+  }
+
+  private async applyDirectMode(mode: ImeMode, reason: string): Promise<void> {
+    if (this.imeController.mode === mode) {
+      this.updateStatusBar(mode, reason);
+      return;
+    }
+
+    const cfg = getSmartInputConfig();
+    const imeCmd = this.resolveImeCommands();
+    const switchCommand = mode === "chinese" ? imeCmd.switchToChineseCommand : imeCmd.switchToEnglishCommand;
+
+    const switched = await this.imeController.switchTo(
+      mode,
+      switchCommand,
+      reason,
+      imeCmd.getStateCommand,
+      cfg.ime.chineseStatePatterns,
+      cfg.ime.englishStatePatterns,
+      cfg.ime.verifyAfterSwitch,
+    );
+
+    this.lastProgrammaticSwitchAt = Date.now();
+    this.updateStatusBar(switched ? mode : this.imeController.mode, switched ? reason : `${reason}, switch verify failed`);
   }
 
   private matchRegexRules(
@@ -772,16 +1009,6 @@ class SmartInputService implements vscode.Disposable {
     return this.compiledRegexRules;
   }
 
-  private isRegexMatched(rule: RegexRule, left: string, right: string): boolean {
-    try {
-      const leftReg = new RegExp(rule.leftRegex);
-      const rightReg = new RegExp(rule.rightRegex);
-      return leftReg.test(left) && rightReg.test(right);
-    } catch {
-      return false;
-    }
-  }
-
   private async isVimNormalMode(): Promise<boolean> {
     try {
       const result = await vscode.commands.executeCommand<unknown>("vim.getCurrentMode");
@@ -813,7 +1040,10 @@ class SmartInputService implements vscode.Disposable {
       true,
     );
     this.lastProgrammaticSwitchAt = Date.now();
-    this.manualChineseSticky = mode === "chinese";
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      this.setManualShiftSticky(mode, activeEditor);
+    }
     this.updateStatusBar(switched ? mode : this.imeController.mode, switched ? reason : `${reason}, switch verify failed`);
   }
 

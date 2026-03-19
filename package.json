@@ -2,7 +2,7 @@
   "name": "smartime",
   "displayName": "SmartIME",
   "description": "根据代码上下文自动切换输入法中英文状态。",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "XiaooHu",
   "repository": {
     "type": "git",
@@ -385,6 +385,88 @@
           "type": "boolean",
           "default": true,
           "description": "Vim NORMAL 模式优先切英文（尽力而为）。"
+        },
+        "smartInput.scene.defaultIme": {
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "description": "默认场景目标输入法。"
+        },
+        "smartInput.scene.commentIme": {
+          "type": "string",
+          "default": "zh",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "description": "注释场景目标输入法。"
+        },
+        "smartInput.scene.stringIme": {
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "description": "字符串场景目标输入法。"
+        },
+        "smartInput.scene.commitIme": {
+          "type": "string",
+          "default": "zh",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "description": "Git 提交输入框（scminput）目标输入法。"
+        },
+        "smartInput.scene.searchEverywhereIme": {
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "description": "VS Code 搜索编辑器场景目标输入法。"
+        },
+        "smartInput.scene.ideaVimNormalIme": {
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "zh"
+          ],
+          "description": "Vim NORMAL 模式场景目标输入法。"
+        },
+        "smartInput.scene.leaveStrategy": {
+          "type": "string",
+          "default": "restore",
+          "enum": [
+            "restore",
+            "en",
+            "zh",
+            "none"
+          ],
+          "description": "离开 IDE 场景策略。"
+        },
+        "smartInput.scene.enterIdeMode": {
+          "type": "string",
+          "default": "keep",
+          "enum": [
+            "keep",
+            "en",
+            "zh"
+          ],
+          "description": "回到 IDE 的恢复策略。"
+        },
+        "smartInput.scene.toolWindowImeMap": {
+          "type": "object",
+          "default": {
+            "Terminal": "en"
+          },
+          "description": "工具窗口目标输入法映射，例如 {\"Terminal\":\"en\"}。"
         }
       }
     },

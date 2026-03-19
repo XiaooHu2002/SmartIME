@@ -1,101 +1,114 @@
 # SmartIME
 
-面向中文开发者的 VS Code 输入法智能切换插件。
+面向中文开发者的智能输入法切换扩展，专注「写代码时少打断」。
 
 English README: [README.en.md](README.en.md)
 
-## 功能概览
+## ✨ 这是什么
 
-- 根据光标上下文自动切换中英文输入态。
-- 识别字符串、单行注释、多行注释、文档注释、其他区域。
-- Windows 下支持 Go 常驻 IME Worker 加速（优先使用，失败自动回退脚本命令）。
-- 光标附近装饰器显示当前输入态（中/英）。
-- 状态栏显示当前输入态与切换原因（切换时优先更新 UI，体感更快）。
-- 支持正则规则（按光标左/右文本匹配）。
-- 支持中文符号自动替换（默认含 Markdown 规则）。
+SmartIME 会根据你正在编辑的位置自动决定中英文输入态：
+
+- 在注释、文档说明等中文语境中更偏向中文。
+- 在代码、标识符、命令输入等语境中更偏向英文。
+- 手动切换后会尽量尊重你的即时操作，减少“被抢回去”的感觉。
+
+## 🧠 功能介绍
+
+- 自动识别上下文：字符串、单行注释、多行注释、文档注释、普通代码区。
+- 支持正则规则：按光标左/右文本匹配场景。
+- 支持中文符号自动替换（可按文件类型与语言配置）。
 - 支持 Vim NORMAL 模式优先英文（best effort）。
+- 状态栏和光标装饰实时显示当前输入态。
+- Windows 支持 Go 常驻 IME Worker，加速状态查询与切换。
 
-## 当前切换策略（最新版）
+## 📦 安装教程
 
-- 注释/字符串等中文场景：自动切到中文。
-- 英文代码场景：自动切到英文。
-- 在代码区手动按 Shift 切到中文后：
-	- 不再按“停顿时间”自动切回英文。
-	- 你可以自己按 Shift 切回英文。
-	- 或者当你把光标移动到英文代码位置时，插件会自动切回英文。
-- 右下角与光标装饰会尽快跟随系统输入态（含按 Shift 的手动切换）。
-- 仅当 VS Code 窗口处于前台且你正在代码编辑区交互（光标移动/输入）时才执行检测。
-- 切到 Typora、聊天面板、侧边栏或窗口失焦后会暂停检测；回到代码区后会快速恢复。
+### 从 VSIX 安装（推荐普通用户）
 
-> 设计目标：符合程序员常见习惯，减少“我正在输入中文却被插件抢回英文”的打断感。
+1. 打开 VS Code 扩展面板。
+2. 右上角点击 `...`。
+3. 选择 `从 VSIX 安装...`。
+4. 选择 release 下载的 `smartime-*.vsix`。
 
-## 重要说明（输入法控制）
+![VSIX 安装示意](./README.assets/image-20260318162132151.png)
 
-VS Code 扩展无法对所有输入法实现“统一直接控制”。
-本项目通过可配置的系统命令与本机输入法工具集成。
+### 源码调试运行（推荐开发者）
 
-请在设置中配置：
-
-- smartInput.ime.getStateCommand
-- smartInput.ime.switchToChineseCommand
-- smartInput.ime.switchToEnglishCommand
-
-若上述命令为空，插件仍可维护内部状态并更新状态栏/装饰器，
-但不保证能真实切换系统输入法。
-
-Windows 集成说明：
-
-- 默认使用插件内置脚本在同一输入法中切换中/英状态。
-- 若存在 `tools/ime-worker.exe`，会优先走 Go 常驻进程通道（更低延迟）。
-- Go worker 不可用时自动回退到脚本命令，无需手动切换配置。
-- 打包后会一并带上所需工具与脚本，不依赖当前窗口路径。
-- 状态栏默认仅显示 `SmartIME 中/英`。
-
-性能与实时性相关设置（常用）：
-
-- `smartInput.evaluateDebounceMs`
-	- 自动切换判定防抖毫秒数，越小越快。
-- `smartInput.ime.pollingIntervalMs`
-	- 轮询系统输入态间隔，建议 300ms 左右可兼顾实时性和开销。
-- `smartInput.ime.liveSyncOnActivity`
-	- 是否在光标/窗口活动时做状态同步。
-- `smartInput.ime.liveSyncMinIntervalMs`
-	- 活动同步最小间隔，越小越实时，越大越省资源。
-- `smartInput.ime.liveSyncDebounceMs`
-	- 活动同步防抖，降低高频抖动场景的额外开销。
-
-## 快速开始
-
-1. 在 VS Code 打开本项目。
+1. 克隆仓库并在 VS Code 打开。
 2. 执行 `npm install`。
 3. 执行 `npm run compile`。
 4. 按 `F5` 启动 Extension Development Host。
-5. 在命令面板执行 `Show Smart Input Pro Menu`。
 
-也可以执行中文命令：`显示 SmartIME 菜单`。
+### JetBrains 安装（IntelliJ IDEA / PyCharm / WebStorm 等）
 
-## 安装教程
+1. 从 release 下载 JetBrains 插件包 `smartime-*.zip`。
+2. 打开 JetBrains IDE，进入 `Settings/Preferences -> Plugins`。
+3. 点击右上角齿轮按钮，选择 `Install Plugin from Disk...`。
+4. 选择下载好的 `smartime-*.zip` 并确认安装。
+5. 重启 IDE 后生效。
 
-在扩展-右上角···-从vsix进行安装即可
+说明：
 
-![image-20260318162132151](./README.assets/image-20260318162132151.png)
+- JetBrains 安装包来自仓库发布附件中的 `dist/*.zip`。
 
-## 开发流程
+## 🚀 使用教程
 
-1. 先改清单：`package.json`
-2. 再写实现：`src/extension.ts` + 业务模块
-3. F5 调试，改动后在新窗口按 `Ctrl+R` 快速重载
-4. 每次改动后先编译再验证交互
+1. 安装后打开命令面板，执行 `显示 SmartIME 菜单`。
+2. 确认自动切换已启用。
+3. 在注释和代码区移动光标，观察状态栏 `SmartIME 中/英` 切换。
+4. 如需接入自定义输入法命令，在设置中配置：
+   - `smartInput.ime.getStateCommand`
+   - `smartInput.ime.switchToChineseCommand`
+   - `smartInput.ime.switchToEnglishCommand`
 
-若修改了 Go Worker：
+## ⚙️ 常用配置
 
-- 执行 `npm run build:ime-worker` 重新编译 `tools/ime-worker.exe`
+- `smartInput.evaluateDebounceMs`：自动切换判定防抖。
+- `smartInput.ime.pollingIntervalMs`：系统输入态轮询间隔。
+- `smartInput.ime.liveSyncOnActivity`：光标活动时快速同步系统输入态。
+- `smartInput.ime.liveSyncMinIntervalMs`：活动同步最小间隔。
+- `smartInput.ime.liveSyncDebounceMs`：活动同步防抖。
 
-## Windows 示例命令（可选）
+## 🛠️ 开发教程
 
-当前默认（推荐）优先 Go Worker；脚本命令用于回退，按 `get / zh / en` 处理：
+### 项目结构（核心）
 
-- getStateCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 get`
-- switchToChineseCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 zh`
-- switchToEnglishCommand: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 en`
+- `src/extension.ts`：VS Code 事件编排与场景切换入口。
+- `src/contextDetector.ts`：编辑区上下文识别。
+- `src/imeController.ts`：输入法状态查询与切换封装。
+- `tools/ime-worker/main.go`：Windows 下 Go worker。
+- `jetbrains-adapter/`：JetBrains 适配子工程。
+
+### 日常开发步骤
+
+1. 修改配置项时先更新 `package.json`。
+2. 编写或调整逻辑后执行 `npm run compile`。
+3. 按 `F5` 在扩展调试窗口验证。
+4. 提交前检查关键交互：注释/字符串/代码区切换是否符合预期。
+
+### Go Worker 开发
+
+- 重新构建 worker：`npm run build:ime-worker`
+- 产物路径：`tools/ime-worker.exe`
+
+## 🏗️ 构建与发布
+
+仓库当前通过 CNB 远端构建并发布两个安装包：
+
+- VS Code 扩展包：`dist/*.vsix`
+- JetBrains 插件包：`dist/*.zip`
+
+发布流水线定义在 `.cnb.yml`，tag 发布时会自动构建并上传这两类附件。
+
+## 🪟 Windows 命令示例（可选）
+
+默认优先 Go worker，脚本命令用于回退（`get / zh / en`）：
+
+- `getStateCommand`: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 get`
+- `switchToChineseCommand`: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 zh`
+- `switchToEnglishCommand`: `powershell -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File <扩展目录>/tools/ime-mode.ps1 en`
+
+## ❤️ 反馈
+
+如果你在使用中遇到误切换、延迟或场景识别问题，欢迎带上复现步骤和文件类型反馈。
 

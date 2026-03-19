@@ -2,3 +2,13 @@ node_modules/
 out/
 *.vsix
 tools/ime-worker.exe
+
+# local build artifacts
+build/
+dist/
+RELEASE_NOTES.md
+*.log
+
+# JetBrains/Gradle local caches and outputs
+jetbrains-adapter/.gradle/
+jetbrains-adapter/build/

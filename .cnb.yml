@@ -48,6 +48,14 @@ $:
               cp CHANGELOG.md RELEASE_NOTES.md
             fi
 
+        - name: Build JetBrains Plugin
+          image: gradle:8.10.2-jdk17
+          script: |
+            set -e
+            gradle -p jetbrains-adapter --no-daemon buildPlugin
+            mkdir -p dist
+            cp jetbrains-adapter/build/distributions/*.zip dist/
+
         - name: Create Release
           type: git:release
           options:
@@ -60,3 +68,4 @@ $:
           settings:
             attachments:
               - "./dist/*.vsix"
+              - "./dist/*.zip"

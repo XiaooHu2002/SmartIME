@@ -26,6 +26,36 @@ function normalizeLanguageIds(values: string[]): string[] {
     .filter((item) => item.length > 0);
 }
 
+function normalizeImeMode(value: unknown, fallback: "chinese" | "english"): "chinese" | "english" {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "zh" || raw === "chinese") {
+    return "chinese";
+  }
+  if (raw === "en" || raw === "english") {
+    return "english";
+  }
+  return fallback;
+}
+
+function normalizeToolWindowMap(value: unknown): Record<string, "zh" | "en"> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const result: Record<string, "zh" | "en"> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const name = String(key || "").trim();
+    const mode = String(raw || "").trim().toLowerCase();
+    if (!name) {
+      continue;
+    }
+    if (mode === "zh" || mode === "en") {
+      result[name] = mode;
+    }
+  }
+  return result;
+}
+
 export function getSmartInputConfig(): SmartInputConfig {
   // 读取 smartInput 命名空间下所有配置，并转换成强类型对象。
   const cfg = vscode.workspace.getConfiguration("smartInput");
@@ -84,6 +114,29 @@ export function getSmartInputConfig(): SmartInputConfig {
       liveSyncDebounceMs: Math.max(0, Number(cfg.get("ime.liveSyncDebounceMs", 120))),
       manualChineseHoldMs: Math.max(0, Number(cfg.get("ime.manualChineseHoldMs", 3000))),
       manualChineseIdleRevertMs: Math.max(300, Number(cfg.get("ime.manualChineseIdleRevertMs", 1500))),
+    },
+    scene: {
+      defaultIme: normalizeImeMode(cfg.get("scene.defaultIme", "en"), "english"),
+      commentIme: normalizeImeMode(cfg.get("scene.commentIme", "zh"), "chinese"),
+      stringIme: normalizeImeMode(cfg.get("scene.stringIme", "en"), "english"),
+      commitIme: normalizeImeMode(cfg.get("scene.commitIme", "zh"), "chinese"),
+      searchEverywhereIme: normalizeImeMode(cfg.get("scene.searchEverywhereIme", "en"), "english"),
+      ideaVimNormalIme: normalizeImeMode(cfg.get("scene.ideaVimNormalIme", "en"), "english"),
+      leaveStrategy: (() => {
+        const raw = String(cfg.get("scene.leaveStrategy", "restore") || "").trim().toLowerCase();
+        if (raw === "en" || raw === "zh" || raw === "none" || raw === "restore") {
+          return raw;
+        }
+        return "restore";
+      })(),
+      enterIdeMode: (() => {
+        const raw = String(cfg.get("scene.enterIdeMode", "keep") || "").trim().toLowerCase();
+        if (raw === "en" || raw === "zh" || raw === "keep") {
+          return raw;
+        }
+        return "keep";
+      })(),
+      toolWindowImeMap: normalizeToolWindowMap(cfg.get("scene.toolWindowImeMap", {})),
     },
     editorRules,
     regexRules,

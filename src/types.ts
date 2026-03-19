@@ -67,6 +67,17 @@ export interface SmartInputConfig {
     manualChineseHoldMs: number;
     manualChineseIdleRevertMs: number;
   };
+  scene: {
+    defaultIme: ImeMode;
+    commentIme: ImeMode;
+    stringIme: ImeMode;
+    commitIme: ImeMode;
+    searchEverywhereIme: ImeMode;
+    ideaVimNormalIme: ImeMode;
+    leaveStrategy: "restore" | "en" | "zh" | "none";
+    enterIdeMode: "keep" | "en" | "zh";
+    toolWindowImeMap: Record<string, "zh" | "en">;
+  };
   editorRules: EditorRule[];
   regexRules: RegexRule[];
   punctuationRules: PunctuationRule[];

@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import * as vscode from "vscode";
 import { ImeMode } from "./types";
 import { ImeWorkerClient } from "./imeWorkerClient";
+import { parseSceneImeOutput, SceneDecisionRequest } from "./sceneProtocol";
 
 export interface ImeDiagnosticTrace {
   phase: "refresh" | "switch";
@@ -62,6 +63,10 @@ export class ImeController implements vscode.Disposable {
     return this.currentMode;
   }
 
+  public get hasWorker(): boolean {
+    return Boolean(this.workerClient?.available);
+  }
+
   public async refreshFromSystem(
     getStateCommand: string,
     chinesePatterns: string[],
@@ -120,6 +125,27 @@ export class ImeController implements vscode.Disposable {
         output: "",
         message: `refresh error: ${String(error)}`,
       });
+      return null;
+    }
+  }
+
+  public async decideByScene(request: SceneDecisionRequest): Promise<{ mode: ImeMode; detail: string } | null> {
+    if (!this.workerClient?.available) {
+      return null;
+    }
+
+    try {
+      const payload: Record<string, unknown> = { ...request };
+      const output = await this.workerClient.executeWithPayload("decide", payload, 300);
+      const mode = parseSceneImeOutput(output);
+      if (!mode) {
+        return null;
+      }
+      return {
+        mode,
+        detail: `go-scene:${request.scene}`,
+      };
+    } catch {
       return null;
     }
   }

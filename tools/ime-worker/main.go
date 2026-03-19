@@ -32,6 +32,7 @@ var (
 	procImmGetConversionStatus = imm32.NewProc("ImmGetConversionStatus")
 	procImmSetConversionStatus = imm32.NewProc("ImmSetConversionStatus")
 	procImmGetDefaultIMEWnd    = imm32.NewProc("ImmGetDefaultIMEWnd")
+	lastStableMode             = "en"
 )
 
 type guiThreadInfo struct {
@@ -50,8 +51,16 @@ type guiThreadInfo struct {
 }
 
 type request struct {
-	ID     int    `json:"id"`
-	Action string `json:"action"`
+	ID              int    `json:"id"`
+	Action          string `json:"action"`
+	Scene           string `json:"scene,omitempty"`
+	Zone            string `json:"zone,omitempty"`
+	ToolWindow      string `json:"toolWindow,omitempty"`
+	VimMode         string `json:"vimMode,omitempty"`
+	EventName       string `json:"eventName,omitempty"`
+	LeaveStrategy   string `json:"leaveStrategy,omitempty"`
+	PreferredString string `json:"preferredString,omitempty"`
+	ForcedIme       string `json:"forcedIme,omitempty"`
 }
 
 type response struct {
@@ -74,7 +83,15 @@ func main() {
 			continue
 		}
 
-		out, err := handleAction(req.Action)
+		var (
+			out string
+			err error
+		)
+		if req.Action == "decide" {
+			out, err = decideByScene(req)
+		} else {
+			out, err = handleAction(req.Action)
+		}
 		if err != nil {
 			writeResponse(writer, response{ID: req.ID, OK: false, Error: err.Error()})
 			continue
@@ -104,8 +121,68 @@ func handleAction(action string) (string, error) {
 			return "", err
 		}
 		return "en", nil
+	case "decide":
+		return "", fmt.Errorf("decide requires request context")
 	default:
 		return "", fmt.Errorf("unknown action: %s", action)
+	}
+}
+
+func decideByScene(req request) (string, error) {
+	scene := req.Scene
+	if scene == "" {
+		scene = "DEFAULT"
+	}
+
+	if req.ForcedIme == "zh" || req.ForcedIme == "en" {
+		return req.ForcedIme, nil
+	}
+
+	switch scene {
+	case "IDEA_VIM_NORMAL":
+		return "en", nil
+	case "COMMIT":
+		return "zh", nil
+	case "COMMENT":
+		return "zh", nil
+	case "STRING":
+		if req.PreferredString == "zh" || req.PreferredString == "en" {
+			return req.PreferredString, nil
+		}
+		return "en", nil
+	case "TOOL_WINDOW":
+		if req.ToolWindow == "Project" || req.ToolWindow == "Terminal" || req.ToolWindow == "SearchEverywhere" {
+			return "en", nil
+		}
+		return "zh", nil
+	case "SEARCH_EVERYWHERE":
+		return "en", nil
+	case "CUSTOM_EVENT":
+		return lastStableMode, nil
+	case "CUSTOM_REGEX":
+		return lastStableMode, nil
+	case "LEAVE_IDE":
+		switch req.LeaveStrategy {
+		case "en":
+			return "en", nil
+		case "zh":
+			return "zh", nil
+		case "none":
+			return lastStableMode, nil
+		default:
+			return lastStableMode, nil
+		}
+	default:
+		if req.Zone == "comment" {
+			return "zh", nil
+		}
+		if req.Zone == "string" {
+			if req.PreferredString == "zh" || req.PreferredString == "en" {
+				return req.PreferredString, nil
+			}
+			return "en", nil
+		}
+		return "en", nil
 	}
 }
 
@@ -189,51 +266,67 @@ func getTargetWindow() uintptr {
 func getMode() (string, error) {
 	target := getTargetWindow()
 	if target == 0 {
-		return "unknown", fmt.Errorf("no foreground window")
+		return lastStableMode, nil
 	}
 
 	himc := immGetContext(target)
 	defaultIME := immGetDefaultIMEWnd(target)
 	if himc == 0 && defaultIME == 0 {
-		return "unknown", fmt.Errorf("no ime context")
+		return lastStableMode, nil
 	}
 
 	if himc == 0 {
 		ret := sendMessage(defaultIME, wmIMEControl, imcGetOpenState, 0)
 		if ret != 0 {
+			lastStableMode = "zh"
 			return "zh", nil
 		}
+		lastStableMode = "en"
 		return "en", nil
 	}
 	defer immReleaseContext(target, himc)
 
 	if immGetOpenStatus(himc) {
+		lastStableMode = "zh"
 		return "zh", nil
 	}
 	if defaultIME != 0 {
 		ret := sendMessage(defaultIME, wmIMEControl, imcGetOpenState, 0)
 		if ret != 0 {
+			lastStableMode = "zh"
 			return "zh", nil
 		}
 	}
 
 	conv, _, ok := immGetConversionStatus(himc)
 	if ok && (conv&imeCModeNative) != 0 {
+		lastStableMode = "zh"
 		return "zh", nil
 	}
+	lastStableMode = "en"
 	return "en", nil
 }
 
 func setMode(chinese bool) error {
 	target := getTargetWindow()
 	if target == 0 {
-		return fmt.Errorf("no foreground window")
+		if chinese {
+			lastStableMode = "zh"
+		} else {
+			lastStableMode = "en"
+		}
+		return nil
 	}
 
 	himc := immGetContext(target)
 	defaultIME := immGetDefaultIMEWnd(target)
 	if himc == 0 && defaultIME == 0 {
-		return fmt.Errorf("no ime context")
+		if chinese {
+			lastStableMode = "zh"
+		} else {
+			lastStableMode = "en"
+		}
+		return nil
 	}
 
 	if himc == 0 {
@@ -242,6 +335,11 @@ func setMode(chinese bool) error {
 			value = 1
 		}
 		sendMessage(defaultIME, wmIMEControl, imcSetOpenState, value)
+		if chinese {
+			lastStableMode = "zh"
+		} else {
+			lastStableMode = "en"
+		}
 		return nil
 	}
 	defer immReleaseContext(target, himc)
@@ -255,6 +353,7 @@ func setMode(chinese bool) error {
 		if ok {
 			immSetConversionStatus(himc, conv|imeCModeNative, sent)
 		}
+		lastStableMode = "zh"
 		return nil
 	}
 
@@ -265,5 +364,6 @@ func setMode(chinese bool) error {
 	if defaultIME != 0 {
 		sendMessage(defaultIME, wmIMEControl, imcSetOpenState, 0)
 	}
+	lastStableMode = "en"
 	return nil
 }
