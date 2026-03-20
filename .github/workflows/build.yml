@@ -72,9 +72,16 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
 
       - name: Build JetBrains plugin
-        run: gradle -p jetbrains-adapter buildPlugin --stacktrace
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TAG="${TAG#v}"
+          TAG="${TAG#V}"
+          gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG" buildPlugin --stacktrace
 
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
