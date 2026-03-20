@@ -2,7 +2,7 @@
   "name": "smartime",
   "displayName": "SmartIME",
   "description": "根据代码上下文自动切换输入法中英文状态。",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "XiaooHu",
   "repository": {
     "type": "git",
@@ -23,6 +23,7 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "build:ime-worker": "go build -C tools/ime-worker -o ../ime-worker.exe .",
+    "build:jetbrains:local": "npm run build:ime-worker && gradle -p jetbrains-adapter --no-daemon buildPlugin",
     "package": "npm run compile"
   },
   "contributes": {

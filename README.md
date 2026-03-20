@@ -92,6 +92,7 @@ SmartIME 会根据你正在编辑的位置自动决定中英文输入态：
 
 - 重新构建 worker：`npm run build:ime-worker`
 - 产物路径：`tools/ime-worker.exe`
+- 本地构建 JetBrains（先 Go 后 JetBrains）：`npm run build:jetbrains:local`
 
 ## 🏗️ 构建与发布
 

@@ -91,6 +91,7 @@ Notes:
 
 - Rebuild worker: `npm run build:ime-worker`
 - Output path: `tools/ime-worker.exe`
+- Build JetBrains plugin locally (Go first, then JetBrains): `npm run build:jetbrains:local`
 
 ## 🏗️ Build And Release
 
