@@ -58,15 +58,7 @@ $:
           image: gradle:8.10.2-jdk17
           script: |
             set -e
-            TAG="${CNB_BRANCH}"
-            TAG="${TAG#refs/tags/}"
-            if [ -z "$TAG" ]; then
-              TAG="$(node -p "require('./package.json').version")"
-            fi
-            TAG="${TAG#v}"
-            TAG="${TAG#V}"
-
-            gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG" buildPlugin
+            gradle -p jetbrains-adapter buildPlugin --stacktrace
             mkdir -p dist
             cp jetbrains-adapter/build/distributions/*.zip dist/
 
