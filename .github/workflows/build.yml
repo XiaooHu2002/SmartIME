@@ -75,6 +75,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
+          gradle-home-cache-cleanup: true
+
+      - name: Clean Gradle build cache
+        shell: bash
+        run: |
+          cd jetbrains-adapter
+          rm -rf build/
+          cd ..
 
       - name: Build JetBrains plugin
         shell: bash
@@ -82,7 +90,7 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           TAG="${TAG#v}"
           TAG="${TAG#V}"
-          gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG" buildPlugin --stacktrace
+          gradle -p jetbrains-adapter --no-daemon --refresh-dependencies -PpluginVersion="$TAG" buildPlugin --stacktrace
 
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
@@ -160,6 +168,8 @@ jobs:
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           tag_name: ${{ steps.release_meta.outputs.tag_name }}
           name: ${{ steps.release_meta.outputs.release_name }}
