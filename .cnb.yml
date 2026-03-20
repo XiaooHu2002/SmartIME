@@ -26,6 +26,9 @@ $:
             if [ -z "$TAG" ]; then
               TAG="$(node -p "require('./package.json').version")"
             fi
+            CHANGELOG_VER="$TAG"
+            CHANGELOG_VER="${CHANGELOG_VER#v}"
+            CHANGELOG_VER="${CHANGELOG_VER#V}"
 
             BASE_URL="https://cnb.cool/${CNB_REPO_SLUG}"
             vsce package \
@@ -33,9 +36,12 @@ $:
               --baseImagesUrl "${BASE_URL}/-/raw/${TAG}" \
               --out "dist/smartime-${TAG}.vsix"
 
-            awk -v ver="$TAG" '
-              BEGIN { in_section = 0 }
-              $0 ~ ("^##[[:space:]]*\\[?" ver "\\]?") {
+            awk -v ver="$CHANGELOG_VER" '
+              BEGIN {
+                in_section = 0
+                gsub(/[][(){}.^$*+?|\\]/, "\\\\&", ver)
+              }
+              $0 ~ ("^##[[:space:]]*\\[?v?" ver "\\]?([[:space:]]*$|[[:space:]-])") {
                 in_section = 1
                 print
                 next
@@ -45,7 +51,22 @@ $:
             ' CHANGELOG.md > RELEASE_NOTES.md
 
             if [ ! -s RELEASE_NOTES.md ]; then
-              cp CHANGELOG.md RELEASE_NOTES.md
+              echo "WARN: no changelog section matched tag '$TAG', fallback to latest section" >&2
+              awk '
+                BEGIN { in_section = 0 }
+                /^##[[:space:]]+/ {
+                  if (in_section) exit
+                  in_section = 1
+                  print
+                  next
+                }
+                in_section { print }
+              ' CHANGELOG.md > RELEASE_NOTES.md
+            fi
+
+            if [ ! -s RELEASE_NOTES.md ]; then
+              echo "ERROR: failed to generate release notes from CHANGELOG.md" >&2
+              exit 1
             fi
 
         - name: Build JetBrains Plugin
