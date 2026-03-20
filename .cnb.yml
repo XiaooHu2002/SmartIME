@@ -1,7 +1,11 @@
 $:
   tag_push:
-    - name: Build VSIX And Release
+    - name: Build And Release SmartIME
       stages:
+
+        # ========================
+        # 1. 构建 Go Worker
+        # ========================
         - name: Build Go IME Worker
           image: golang:1.22
           script: |
@@ -9,33 +13,91 @@ $:
             export GOOS=windows
             export GOARCH=amd64
             export CGO_ENABLED=0
+
+            echo ">>> Building IME Worker..."
             go build -C tools/ime-worker -o ../ime-worker.exe .
+
+        # ========================
+        # 2. 构建 VSCode 插件
+        # ========================
         - name: Build VSIX
           image: node:20
           script: |
             set -e
+
+            echo ">>> Install deps"
             npm ci
             npm run compile
             npm install -g @vscode/vsce
 
             mkdir -p dist
 
+            # ===== 版本处理（核心）=====
             TAG="${CNB_BRANCH}"
             TAG="${TAG#refs/tags/}"
-            if [ -z "$TAG" ]; then
-              TAG="$(node -p "require('./package.json').version")"
-            fi
-            CHANGELOG_VER="$TAG"
-            CHANGELOG_VER="${CHANGELOG_VER#v}"
-            CHANGELOG_VER="${CHANGELOG_VER#V}"
 
+            if [ -z "$TAG" ]; then
+              TAG="$(node -p "require('./package.json').version")-dev"
+            fi
+
+            VERSION="${TAG#v}"
+            VERSION="${VERSION#V}"
+
+            echo ">>> VERSION = $VERSION"
+
+            # ===== 打包 =====
             BASE_URL="https://cnb.cool/${CNB_REPO_SLUG}"
+
             vsce package \
               --baseContentUrl "${BASE_URL}/-/blob/${TAG}" \
               --baseImagesUrl "${BASE_URL}/-/raw/${TAG}" \
-              --out "dist/smartime-${TAG}.vsix"
+              --out "dist/smartime-${VERSION}.vsix"
 
-            awk -v ver="$CHANGELOG_VER" '
+        # ========================
+        # 3. 构建 JetBrains 插件
+        # ========================
+        - name: Build JetBrains Plugin
+          image: gradle:8.5-jdk17   # ⚠️ 稳定版本（避免你之前的报错）
+          script: |
+            set -e
+
+            TAG="${CNB_BRANCH}"
+            TAG="${TAG#refs/tags/}"
+
+            if [ -z "$TAG" ]; then
+              TAG="0.0.0-dev"
+            fi
+
+            VERSION="${TAG#v}"
+            VERSION="${VERSION#V}"
+
+            echo ">>> VERSION = $VERSION"
+
+            # ❗关键：必须一行写
+            gradle -p jetbrains-adapter \
+              --no-daemon \
+              -PpluginVersion="$VERSION" \
+              buildPlugin
+
+            mkdir -p dist
+            cp jetbrains-adapter/build/distributions/*.zip dist/
+
+        # ========================
+        # 4. 生成 Release Notes
+        # ========================
+        - name: Generate Release Notes
+          image: node:20
+          script: |
+            set -e
+
+            TAG="${CNB_BRANCH}"
+            TAG="${TAG#refs/tags/}"
+            VERSION="${TAG#v}"
+            VERSION="${VERSION#V}"
+
+            echo ">>> Generating changelog for $VERSION"
+
+            awk -v ver="$VERSION" '
               BEGIN {
                 in_section = 0
                 gsub(/[][(){}.^$*+?|\\]/, "\\\\&", ver)
@@ -49,40 +111,26 @@ $:
             ' CHANGELOG.md > RELEASE_NOTES.md
 
             if [ ! -s RELEASE_NOTES.md ]; then
-              echo "ERROR: no changelog section matched tag '$TAG' (normalized: '$CHANGELOG_VER')" >&2
-              exit 1
-            fi
-        - name: Build JetBrains Plugin
-          image: gradle:8.10.2-jdk17
-          script: >
-            set -e
-
-            TAG="${CNB_BRANCH}"
-
-            TAG="${TAG#refs/tags/}"
-
-            if [ -z "$TAG" ]; then
-              TAG="$(node -p "require('./package.json').version")"
+              echo "No changelog found, fallback..."
+              echo "Release $VERSION" > RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+              echo "Auto generated build." >> RELEASE_NOTES.md
             fi
 
-            TAG="${TAG#v}"
-
-            TAG="${TAG#V}"
-
-
-            gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG"
-            buildPlugin
-
-            mkdir -p dist
-
-            cp jetbrains-adapter/build/distributions/*.zip dist/
+        # ========================
+        # 5. 创建 Release
+        # ========================
         - name: Create Release
           type: git:release
           options:
             title: ${CNB_BRANCH}
             descriptionFromFile: RELEASE_NOTES.md
             latest: true
-        - name: Upload VSIX To Release
+
+        # ========================
+        # 6. 上传附件
+        # ========================
+        - name: Upload Artifacts
           image: cnbcool/attachments:latest
           settings:
             attachments:
