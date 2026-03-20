@@ -29,6 +29,8 @@ class SmartImeSettingsService : PersistentStateComponent<SmartImeSettingsState> 
  * 场景配置状态。
  */
 data class SmartImeSettingsState(
+    /** 是否启用自动切换。 */
+    var enabled: Boolean = true,
     /** 默认场景目标输入法，通常为英文。 */
     var defaultIme: String = "en",
     /** 注释场景目标输入法，通常为中文。 */
@@ -57,12 +59,20 @@ data class SmartImeSettingsState(
     var customRegexRules: MutableList<CustomRegexRule> = mutableListOf(),
     /** 是否开启自定义事件日志输出（用于发现可监听事件名）。 */
     var enableEventLog: Boolean = false,
+    /** 是否显示诊断状态栏。 */
+    var enableDiagnosticBar: Boolean = false,
     /** 是否开启输入光标颜色跟随。 */
     var enableCaretColor: Boolean = true,
     /** 中文输入态光标颜色（16 进制）。 */
     var zhCaretColor: String = "#FF4D4F",
     /** 英文输入态光标颜色（16 进制）。 */
     var enCaretColor: String = "#40A9FF",
+    /** 手动切换后同一行保持输入态。 */
+    var manualShiftSticky: Boolean = true,
+    /** 交互时同步系统输入态。 */
+    var liveSyncOnActivity: Boolean = true,
+    /** 活动同步最小间隔（毫秒）。 */
+    var liveSyncMinIntervalMs: Int = 80,
 )
 
 data class CustomEventRule(

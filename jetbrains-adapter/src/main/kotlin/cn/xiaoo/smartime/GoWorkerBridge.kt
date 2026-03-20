@@ -9,53 +9,36 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Go Worker 桥接层。
- *
- * 设计目标：
- * 1. 复用仓库中的 Go 输入法 worker 能力，避免在 JetBrains 侧重复实现系统 API 调用。
- * 2. 使用长连接子进程降低频繁切换时的启动开销。
- * 3. 通过简单 JSON 行协议实现 get/zh/en 三种操作。
  */
 class GoWorkerBridge(
     private val workerPath: String,
 ) {
-    private data class Req(val id: Int, val action: String)
-    private data class Resp(val id: Int, val ok: Boolean, val output: String?, val error: String?)
+    data class WorkerTrace(
+        val action: String,
+        val request: String,
+        val response: String,
+        val ok: Boolean,
+        val output: String?,
+        val error: String?,
+    )
 
     private var process: Process? = null
     private var writer: OutputStreamWriter? = null
     private var reader: BufferedReader? = null
     private val nextId = AtomicInteger(1)
 
-    /**
-     * 查询当前输入法状态。
-     *
-     * 返回值说明：
-     * - zh: 中文输入态
-     * - en: 英文输入态
-     * - null: 未知或失败
-     */
+    @Volatile
+    var lastTrace: WorkerTrace? = null
+        private set
+
     fun getMode(): String? = call("get")
 
-    /**
-     * 切换到中文输入态。
-     */
-    fun switchToZh(): Boolean = call("zh") != null
+    fun switchToZh(): Boolean = call("zh") == "zh"
 
-    /**
-     * 切换到英文输入态。
-     */
-    fun switchToEn(): Boolean = call("en") != null
+    fun switchToEn(): Boolean = call("en") == "en"
 
-    /**
-     * 使用统一场景模型在 Go Worker 中做决策。
-     *
-     * @param request 场景判定请求
-     * @return zh/en 或 null
-     */
     fun decide(request: SceneRequest): String? {
-        val payload = mutableMapOf<String, Any>(
-            "scene" to request.scene,
-        )
+        val payload = mutableMapOf<String, Any>("scene" to request.scene)
         request.zone?.let { payload["zone"] = it }
         request.toolWindow?.let { payload["toolWindow"] = it }
         request.vimMode?.let { payload["vimMode"] = it }
@@ -66,9 +49,13 @@ class GoWorkerBridge(
         return call("decide", payload)
     }
 
-    /**
-     * 释放资源，避免 IDE 退出时残留子进程。
-     */
+    fun mapPunctuation(text: String, mapper: Map<String, String>): String? {
+        if (text.isBlank() || mapper.isEmpty()) {
+            return text
+        }
+        return call("mapPunctuation", mapOf("text" to text, "map" to mapper))
+    }
+
     fun dispose() {
         kotlin.runCatching { writer?.close() }
         kotlin.runCatching { reader?.close() }
@@ -104,21 +91,11 @@ class GoWorkerBridge(
         }
 
         val id = nextId.getAndIncrement()
-        val body = buildString {
-            append("{\"id\":")
-            append(id)
-            append(",\"action\":\"")
-            append(action)
-            append("\"")
-            payload.forEach { (k, v) ->
-                append(",\"")
-                append(k)
-                append("\":\"")
-                append(v.toString().replace("\"", "\\\""))
-                append("\"")
-            }
-            append("}")
-        }
+        val full = LinkedHashMap<String, Any>()
+        full["id"] = id
+        full["action"] = action
+        payload.forEach { (k, v) -> full[k] = v }
+        val body = buildJsonObject(full)
 
         return kotlin.runCatching {
             writer!!.write(body)
@@ -127,15 +104,87 @@ class GoWorkerBridge(
 
             val line = reader!!.readLine() ?: return null
             val ok = line.contains("\"ok\":true")
+            val output = extractJsonString(line, "output")
+            val err = extractJsonString(line, "error")
+            lastTrace = WorkerTrace(action, body, line, ok, output, err)
             if (!ok) {
                 return null
             }
-
-            when {
-                line.contains("\"output\":\"zh\"") -> "zh"
-                line.contains("\"output\":\"en\"") -> "en"
-                else -> "ok"
-            }
+            output
         }.getOrNull()
+    }
+
+    private fun buildJsonObject(map: Map<String, Any>): String {
+        return map.entries.joinToString(prefix = "{", postfix = "}", separator = ",") { (k, v) ->
+            "\"${escapeJson(k)}\":${toJsonValue(v)}"
+        }
+    }
+
+    private fun toJsonValue(value: Any?): String {
+        return when (value) {
+            null -> "null"
+            is String -> "\"${escapeJson(value)}\""
+            is Number, is Boolean -> value.toString()
+            is Map<*, *> -> {
+                val normalized = LinkedHashMap<String, Any>()
+                value.forEach { (k, v) ->
+                    if (k != null && v != null) {
+                        normalized[k.toString()] = v
+                    }
+                }
+                buildJsonObject(normalized)
+            }
+            else -> "\"${escapeJson(value.toString())}\""
+        }
+    }
+
+    private fun escapeJson(text: String): String {
+        val sb = StringBuilder(text.length + 8)
+        text.forEach { ch ->
+            when (ch) {
+                '\\' -> sb.append("\\\\")
+                '"' -> sb.append("\\\"")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun extractJsonString(json: String, key: String): String? {
+        val marker = "\"$key\":\""
+        val start = json.indexOf(marker)
+        if (start < 0) {
+            return null
+        }
+        var i = start + marker.length
+        val out = StringBuilder()
+        var escaped = false
+        while (i < json.length) {
+            val ch = json[i]
+            if (escaped) {
+                out.append(
+                    when (ch) {
+                        'n' -> '\n'
+                        'r' -> '\r'
+                        't' -> '\t'
+                        '"' -> '"'
+                        '\\' -> '\\'
+                        else -> ch
+                    },
+                )
+                escaped = false
+            } else if (ch == '\\') {
+                escaped = true
+            } else if (ch == '"') {
+                break
+            } else {
+                out.append(ch)
+            }
+            i += 1
+        }
+        return out.toString()
     }
 }

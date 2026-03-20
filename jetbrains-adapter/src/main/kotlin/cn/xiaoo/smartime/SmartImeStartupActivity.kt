@@ -8,19 +8,24 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.CaretListener
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import java.awt.Color
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * JetBrains 端启动入口。
@@ -31,12 +36,12 @@ import java.io.File
  * 3. 将判定结果交给 Go Worker 执行输入法切换。
  *
  * 注意：
- * - JetBrains 平台的 API 生命周期与 VS Code 不同，这里使用 ProjectActivity 进行注册。
+ * - JetBrains 平台的 API 生命周期与 VS Code 不同，这里使用 StartupActivity 进行注册。
  * - 当前版本优先落地主干场景，复杂场景（如 SearchEverywhere 的更细分面板）后续可继续补强。
  */
-class SmartImeStartupActivity : ProjectActivity {
+class SmartImeStartupActivity : StartupActivity.DumbAware {
 
-    override suspend fun execute(project: Project) {
+    override fun runActivity(project: Project) {
         val service = project.service<SmartImeService>()
         service.start(project)
     }
@@ -54,6 +59,13 @@ class SmartImeService {
     private var bridge: GoWorkerBridge? = null
     private var engine: JetBrainsSceneEngine? = null
     private val logger = Logger.getInstance(SmartImeService::class.java)
+    private var currentMode: String = "en"
+    private var lastProgrammaticSwitchAt = 0L
+    private var lastActivitySyncAt = 0L
+    private var applyingPunctuation = false
+
+    private data class StickyState(val mode: String, val documentKey: String, val line: Int)
+    private var manualSticky: StickyState? = null
 
     fun start(project: Project) {
         val worker = resolveWorkerPath(project)
@@ -88,18 +100,18 @@ class SmartImeService {
                 override fun editorCreated(event: com.intellij.openapi.editor.event.EditorFactoryEvent) {
                     event.editor.caretModel.addCaretListener(object : CaretListener {
                         override fun caretPositionChanged(event: CaretEvent) {
-                            val editor = event.editor
-                            val (left, right) = extractSides(editor)
-                            val req = engine?.buildRequest(
-                                JetBrainsSceneContext(
-                                    zone = detectZoneByPsiAndHighlighter(project, editor),
-                                    leftText = left,
-                                    rightText = right,
-                                ),
-                            ) ?: return
-                            handleSceneRequest(project, req, "caret moved")
+                            onCaretMoved(project, event.editor)
                         }
                     })
+                }
+            },
+            project,
+        )
+
+        EditorFactory.getInstance().eventMulticaster.addDocumentListener(
+            object : DocumentListener {
+                override fun documentChanged(event: DocumentEvent) {
+                    handlePunctuationChange(project, event)
                 }
             },
             project,
@@ -111,6 +123,7 @@ class SmartImeService {
             object : AnActionListener {
                 override fun beforeActionPerformed(
                     action: com.intellij.openapi.actionSystem.AnAction,
+                    dataContext: com.intellij.openapi.actionSystem.DataContext,
                     event: com.intellij.openapi.actionSystem.AnActionEvent,
                 ) {
                     val actionName = kotlin.runCatching {
@@ -158,29 +171,219 @@ class SmartImeService {
                 }
             },
         )
+
+        project.publishSmartImeStatus(currentMode.uppercase())
+        emitDiagnostic(project, "diag:service started")
+    }
+
+    private fun onCaretMoved(project: Project, editor: Editor) {
+        val docKey = "${editor.document.hashCode()}"
+        val line = editor.caretModel.logicalPosition.line
+        val sticky = manualSticky
+        if (sticky != null && (sticky.documentKey != docKey || sticky.line != line)) {
+            manualSticky = null
+        }
+
+        syncModeFromSystemOnActivity(project, editor)
+
+        val (left, right) = extractSides(editor)
+        val req = engine?.buildRequest(
+            JetBrainsSceneContext(
+                zone = detectZoneByPsiAndHighlighter(project, editor),
+                leftText = left,
+                rightText = right,
+            ),
+        ) ?: return
+        handleSceneRequest(project, req, "caret moved")
+    }
+
+    private fun handlePunctuationChange(project: Project, event: DocumentEvent) {
+        if (applyingPunctuation) {
+            return
+        }
+        val worker = bridge ?: return
+        val inserted = event.newFragment.toString()
+        if (inserted.isBlank() || inserted.length > 256 || inserted.contains("\n") || inserted.contains("\r")) {
+            return
+        }
+
+        val mapped = worker.mapPunctuation(inserted, punctuationMap()) ?: return
+        if (mapped == inserted) {
+            return
+        }
+
+        applyingPunctuation = true
+        try {
+            WriteCommandAction.runWriteCommandAction(project) {
+                val start = event.offset
+                val end = event.offset + event.newLength
+                if (end <= event.document.textLength) {
+                    event.document.replaceString(start, end, mapped)
+                }
+            }
+            emitDiagnostic(project, "diag:punctuation mapped")
+        } finally {
+            applyingPunctuation = false
+        }
+    }
+
+    private fun punctuationMap(): Map<String, String> = mapOf(
+        "，" to ",",
+        "。" to ".",
+        "；" to ";",
+        "：" to ":",
+        "（" to "(",
+        "）" to ")",
+        "【" to "[",
+        "】" to "]",
+        "《" to "<",
+        "》" to ">",
+        "“" to "\"",
+        "”" to "\"",
+        "‘" to "'",
+        "’" to "'",
+        "、" to ",",
+        "！" to "!",
+        "？" to "?",
+    )
+
+    private fun syncModeFromSystemOnActivity(project: Project, editor: Editor) {
+        val settings = project.service<SmartImeSettingsService>().state
+        if (!settings.liveSyncOnActivity) {
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastActivitySyncAt < settings.liveSyncMinIntervalMs) {
+            return
+        }
+        if (now - lastProgrammaticSwitchAt < 300) {
+            return
+        }
+        lastActivitySyncAt = now
+
+        val mode = bridge?.getMode() ?: return
+        if (mode == currentMode) {
+            return
+        }
+
+        currentMode = mode
+        val stickyLine = editor.caretModel.logicalPosition.line
+        manualSticky = StickyState(mode, "${editor.document.hashCode()}", stickyLine)
+        project.publishSmartImeStatus(mode.uppercase())
+        emitDiagnostic(project, "diag:manual shift detected -> $mode")
+        applyCaretColor(project, mode)
     }
 
     private fun handleSceneRequest(project: Project, request: SceneRequest, reason: String) {
-        val currentBridge = bridge ?: return
-
-        val result = currentBridge.decide(request) ?: return
-
-        when (result) {
-            "zh" -> currentBridge.switchToZh()
-            "en" -> currentBridge.switchToEn()
-            else -> {
-                // keep
-            }
+        val settings = project.service<SmartImeSettingsService>().state
+        if (!settings.enabled) {
+            project.publishSmartImeStatus("OFF")
+            emitDiagnostic(project, "diag:auto switch disabled")
+            return
         }
 
-        // 可选光标配色：通过全局 Caret 颜色反馈当前输入态，便于在全屏编码时快速感知状态。
-        applyCaretColor(project, result)
+        val currentBridge = bridge ?: return
+        val result = currentBridge.decide(request) ?: return
 
-        // 将简要诊断输出到 IDE 日志，便于后续做“自定义事件场景”的事件名称采集与排查。
-        val settings = project.service<SmartImeSettingsService>().state
+        if (settings.manualShiftSticky && shouldHoldManualSticky(project, result)) {
+            emitDiagnostic(project, "diag:manual sticky hold")
+            return
+        }
+
+        val switched = when (result) {
+            "zh" -> currentBridge.switchToZh()
+            "en" -> currentBridge.switchToEn()
+            else -> true
+        }
+        if (!switched) {
+            emitDiagnostic(project, "diag:switch failed")
+            return
+        }
+
+        currentMode = result
+        lastProgrammaticSwitchAt = System.currentTimeMillis()
+
+        applyCaretColor(project, result)
+        project.publishSmartImeStatus(result.uppercase())
+
+        val trace = currentBridge.lastTrace
+        val traceText = if (trace != null) {
+            "diag:${trace.action}|${if (trace.ok) "ok" else "fail"}|${trace.output ?: trace.error ?: "none"}"
+        } else {
+            "diag:scene=${request.scene}|mode=$result"
+        }
+        emitDiagnostic(project, traceText)
+
         if (settings.enableEventLog) {
             logger.info("SmartIME Decision scene=${request.scene}, ime=$result, reason=$reason, project=${project.name}")
         }
+    }
+
+    fun toggleAutoSwitch(project: Project) {
+        val settings = project.service<SmartImeSettingsService>().state
+        settings.enabled = !settings.enabled
+        if (!settings.enabled) {
+            project.publishSmartImeStatus("OFF")
+            emitDiagnostic(project, "diag:auto switch disabled")
+        } else {
+            project.publishSmartImeStatus(currentMode.uppercase())
+            emitDiagnostic(project, "diag:auto switch enabled")
+        }
+    }
+
+    fun manualSwitchToZh(project: Project, source: String) {
+        manualSwitch(project, "zh", source)
+    }
+
+    fun manualSwitchToEn(project: Project, source: String) {
+        manualSwitch(project, "en", source)
+    }
+
+    private fun manualSwitch(project: Project, target: String, source: String) {
+        val currentBridge = bridge ?: return
+        val switched = if (target == "zh") currentBridge.switchToZh() else currentBridge.switchToEn()
+        if (!switched) {
+            emitDiagnostic(project, "diag:manual switch failed")
+            return
+        }
+        currentMode = target
+        lastProgrammaticSwitchAt = System.currentTimeMillis()
+
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor
+        if (editor != null) {
+            val docKey = "${editor.document.hashCode()}"
+            val line = editor.caretModel.logicalPosition.line
+            manualSticky = StickyState(target, docKey, line)
+        }
+
+        applyCaretColor(project, target)
+        project.publishSmartImeStatus(target.uppercase())
+        emitDiagnostic(project, "diag:manual switch $target by $source")
+    }
+
+    private fun shouldHoldManualSticky(project: Project, nextMode: String): Boolean {
+        val sticky = manualSticky ?: return false
+        if (sticky.mode == nextMode) {
+            return false
+        }
+
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return false
+        val docKey = "${editor.document.hashCode()}"
+        val line = editor.caretModel.logicalPosition.line
+        return if (sticky.documentKey == docKey && sticky.line == line) {
+            true
+        } else {
+            manualSticky = null
+            false
+        }
+    }
+
+    private fun emitDiagnostic(project: Project, text: String) {
+        val settings = project.service<SmartImeSettingsService>().state
+        if (!settings.enableDiagnosticBar) {
+            return
+        }
+        project.publishSmartImeDiagnostic(text)
     }
 
     private fun applyCaretColor(project: Project, ime: String) {
@@ -232,12 +435,40 @@ class SmartImeService {
     }
 
     private fun resolveWorkerPath(project: Project): String? {
+        // 1) 优先使用插件 zip 内置 worker（用于发布安装场景）
+        resolveBundledWorkerPath()?.let { return it }
+
+        // 2) 开发场景回退到项目根目录 tools/ime-worker.exe
         val base = project.basePath ?: return null
         val candidate = File(base, "tools/ime-worker.exe")
         if (candidate.exists()) {
             return candidate.absolutePath
         }
+
+        logger.warn("SmartIME worker not found. Expected bundled resource 'bin/ime-worker.exe' or '$base/tools/ime-worker.exe'")
         return null
+    }
+
+    private fun resolveBundledWorkerPath(): String? {
+        val resourcePath = "bin/ime-worker.exe"
+        val url = SmartImeService::class.java.classLoader.getResource(resourcePath) ?: return null
+
+        return kotlin.runCatching {
+            if (url.protocol == "file") {
+                File(url.toURI()).absolutePath
+            } else {
+                val temp = Files.createTempFile("smartime-worker-", ".exe").toFile()
+                temp.deleteOnExit()
+                SmartImeService::class.java.classLoader.getResourceAsStream(resourcePath).use { input ->
+                    if (input == null) {
+                        return null
+                    }
+                    Files.copy(input, temp.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                temp.setExecutable(true)
+                temp.absolutePath
+            }
+        }.getOrNull()
     }
 
     private fun detectZoneByPsiAndHighlighter(project: Project, editor: Editor): String {
@@ -257,16 +488,7 @@ class SmartImeService {
             return "string"
         }
 
-        val tokenName = kotlin.runCatching {
-            editor.highlighter.createIterator(offset).tokenType.toString().uppercase()
-        }.getOrDefault("")
-
-        if (tokenName.contains("COMMENT")) {
-            return "comment"
-        }
-        if (tokenName.contains("STRING") || tokenName.contains("CHARACTER_LITERAL") || tokenName.contains("TEXT_BLOCK")) {
-            return "string"
-        }
+        // 对旧平台版本避免使用 Editor 新属性，保留 PSI 主路径判定。
 
         return "default"
     }

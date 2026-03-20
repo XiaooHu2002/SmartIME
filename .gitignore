@@ -12,3 +12,6 @@ RELEASE_NOTES.md
 # JetBrains/Gradle local caches and outputs
 jetbrains-adapter/.gradle/
 jetbrains-adapter/build/
+
+# VSCode workspace settings
+.vscode/

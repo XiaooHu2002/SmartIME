@@ -11,6 +11,8 @@
         通过 Go Worker 完成输入法状态切换与查询，适配默认场景、注释场景、字符串场景、Git 提交、工具窗口、IdeaVim 等。
     ]]></description>
 
+    <idea-version since-build="211" until-build="999.*"/>
+
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
@@ -25,5 +27,21 @@
                 id="cn.xiaoo.smartime.settings"
                 displayName="SmartIME"
                 instance="cn.xiaoo.smartime.SmartImeProjectConfigurable"/>
+        <statusBarWidgetFactory implementation="cn.xiaoo.smartime.SmartImeStatusBarWidgetFactory"/>
     </extensions>
+
+    <actions>
+        <action id="SmartIME.ShowMenu" class="cn.xiaoo.smartime.SmartImeShowMenuAction" text="SmartIME 菜单">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="SmartIME.ToggleAutoSwitch" class="cn.xiaoo.smartime.SmartImeToggleAutoSwitchAction" text="SmartIME: 自动切换开关">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="SmartIME.SwitchToChinese" class="cn.xiaoo.smartime.SmartImeSwitchToChineseAction" text="SmartIME: 切换到中文">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="SmartIME.SwitchToEnglish" class="cn.xiaoo.smartime.SmartImeSwitchToEnglishAction" text="SmartIME: 切换到英文">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

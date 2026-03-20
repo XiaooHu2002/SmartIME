@@ -45,7 +45,11 @@ class SmartImeProjectConfigurable(
     private val leaveStrategy = JComboBox(arrayOf("restore", "none", "en", "zh"))
     private val enterIdeMode = JComboBox(arrayOf("keep", "en", "zh"))
 
+    private val enabled = JCheckBox("启用自动切换")
     private val enableEventLog = JCheckBox("启用事件日志（idea.log）")
+    private val enableDiagnosticBar = JCheckBox("启用诊断状态提示")
+    private val manualShiftSticky = JCheckBox("手动切换同一行保持（sticky）")
+    private val liveSyncOnActivity = JCheckBox("光标活动时同步系统输入态")
     private val enableCaretColor = JCheckBox("启用输入态光标配色")
     private val zhCaretColor = JTextField()
     private val enCaretColor = JTextField()
@@ -99,7 +103,15 @@ class SmartImeProjectConfigurable(
 
             gc.gridx = 0
             gc.gridwidth = 2
+            root!!.add(enabled, gc)
+            gc.gridy += 1
             root!!.add(enableEventLog, gc)
+            gc.gridy += 1
+            root!!.add(enableDiagnosticBar, gc)
+            gc.gridy += 1
+            root!!.add(manualShiftSticky, gc)
+            gc.gridy += 1
+            root!!.add(liveSyncOnActivity, gc)
             gc.gridy += 1
             root!!.add(enableCaretColor, gc)
             gc.gridy += 1
@@ -153,7 +165,11 @@ class SmartImeProjectConfigurable(
         if (selected(leaveStrategy) != state.leaveStrategy) return true
         if (selected(enterIdeMode) != state.enterIdeMode) return true
 
+        if (enabled.isSelected != state.enabled) return true
         if (enableEventLog.isSelected != state.enableEventLog) return true
+        if (enableDiagnosticBar.isSelected != state.enableDiagnosticBar) return true
+        if (manualShiftSticky.isSelected != state.manualShiftSticky) return true
+        if (liveSyncOnActivity.isSelected != state.liveSyncOnActivity) return true
         if (enableCaretColor.isSelected != state.enableCaretColor) return true
         if (zhCaretColor.text.trim() != state.zhCaretColor) return true
         if (enCaretColor.text.trim() != state.enCaretColor) return true
@@ -189,7 +205,11 @@ class SmartImeProjectConfigurable(
         state.leaveStrategy = selected(leaveStrategy)
         state.enterIdeMode = selected(enterIdeMode)
 
+        state.enabled = enabled.isSelected
         state.enableEventLog = enableEventLog.isSelected
+        state.enableDiagnosticBar = enableDiagnosticBar.isSelected
+        state.manualShiftSticky = manualShiftSticky.isSelected
+        state.liveSyncOnActivity = liveSyncOnActivity.isSelected
         state.enableCaretColor = enableCaretColor.isSelected
         state.zhCaretColor = zhCaretColor.text.trim().ifBlank { "#FF4D4F" }
         state.enCaretColor = enCaretColor.text.trim().ifBlank { "#40A9FF" }
@@ -211,7 +231,11 @@ class SmartImeProjectConfigurable(
         leaveStrategy.selectedItem = state.leaveStrategy
         enterIdeMode.selectedItem = state.enterIdeMode
 
+        enabled.isSelected = state.enabled
         enableEventLog.isSelected = state.enableEventLog
+        enableDiagnosticBar.isSelected = state.enableDiagnosticBar
+        manualShiftSticky.isSelected = state.manualShiftSticky
+        liveSyncOnActivity.isSelected = state.liveSyncOnActivity
         enableCaretColor.isSelected = state.enableCaretColor
         zhCaretColor.text = state.zhCaretColor
         enCaretColor.text = state.enCaretColor
