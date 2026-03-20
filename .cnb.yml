@@ -43,7 +43,6 @@ $:
               }
               $0 ~ ("^##[[:space:]]*\\[?v?" ver "\\]?([[:space:]]*$|[[:space:]-])") {
                 in_section = 1
-                print
                 next
               }
               in_section && $0 ~ /^##[[:space:]]+/ { exit }

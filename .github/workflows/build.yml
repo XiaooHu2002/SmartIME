@@ -109,16 +109,24 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF_NAME}"
-            awk -v tag="$TAG" '
-              $0 ~ "^##[[:space:]]+" tag "[[:space:]]*$" { in_section=1; next }
-              in_section && $0 ~ "^##[[:space:]]+" { exit }
+            CHANGELOG_VER="${TAG#v}"
+            CHANGELOG_VER="${CHANGELOG_VER#V}"
+            awk -v ver="$CHANGELOG_VER" '
+              BEGIN {
+                in_section = 0
+                gsub(/[][(){}.^$*+?|\\]/, "\\\\&", ver)
+              }
+              $0 ~ ("^##[[:space:]]*\\[?v?" ver "\\]?([[:space:]]*$|[[:space:]-])") {
+                in_section = 1
+                next
+              }
+              in_section && $0 ~ /^##[[:space:]]+/ { exit }
               in_section { print }
             ' CHANGELOG.md > RELEASE_NOTES.md
 
             if [ ! -s RELEASE_NOTES.md ]; then
-              echo "Release $TAG" > RELEASE_NOTES.md
-              echo >> RELEASE_NOTES.md
-              echo "See CHANGELOG.md for details." >> RELEASE_NOTES.md
+              echo "ERROR: no changelog section matched tag '$TAG' (normalized: '$CHANGELOG_VER')" >&2
+              exit 1
             fi
           else
             echo "Automated main build release for commit ${GITHUB_SHA}." > RELEASE_NOTES.md
