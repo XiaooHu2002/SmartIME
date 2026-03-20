@@ -4,7 +4,11 @@ plugins {
 }
 
 group = "cn.xiaoo.smartime"
-version = "0.0.3"
+version = ((findProperty("pluginVersion") as String?)
+    ?: System.getenv("SMARTIME_PLUGIN_VERSION")
+    ?: "0.0.3")
+    .removePrefix("v")
+    .removePrefix("V")
 
 repositories {
     mavenCentral()
