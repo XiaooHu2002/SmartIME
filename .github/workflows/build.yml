@@ -10,8 +10,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
-  id-token: write
 
 jobs:
   build-vscode:
@@ -42,15 +40,11 @@ jobs:
       - name: Compile extension
         run: npm run compile
 
-      - name: Install VSCE globally
-        run: npm install -g @vscode/vsce
-
       - name: Package VSIX
         shell: pwsh
         run: |
-          $TAG = "${{ github.ref_name }}"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          vsce package --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-$TAG.vsix
+          npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-${{ github.ref_name }}.vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
@@ -76,22 +70,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
-          gradle-home-cache-cleanup: true
-
-      - name: Clean Gradle build cache
-        shell: bash
-        run: |
-          cd jetbrains-adapter
-          rm -rf build/
-          cd ..
 
       - name: Build JetBrains plugin
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          TAG="${TAG#v}"
-          TAG="${TAG#V}"
-          gradle -p jetbrains-adapter --no-daemon --refresh-dependencies -PpluginVersion="$TAG" buildPlugin --stacktrace
+        run: gradle -p jetbrains-adapter buildPlugin --stacktrace
 
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
@@ -167,36 +148,15 @@ jobs:
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create/Update GitHub Release using GitHub CLI
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG_NAME="${{ steps.release_meta.outputs.tag_name }}"
-          RELEASE_NAME="${{ steps.release_meta.outputs.release_name }}"
-          PRERELEASE="${{ steps.release_meta.outputs.prerelease }}"
-          
-          # Check if release already exists
-          if gh release view "$TAG_NAME" --repo "${{ github.repository }}" 2>/dev/null; then
-            echo "Release $TAG_NAME already exists, skipping creation"
-          else
-            # Create new release
-            if [ "$PRERELEASE" = "true" ]; then
-              gh release create "$TAG_NAME" \
-                --repo "${{ github.repository }}" \
-                --target "${{ github.sha }}" \
-                --title "$RELEASE_NAME" \
-                --body-file RELEASE_NOTES.md \
-                --prerelease \
-                release-assets/vsix/*.vsix \
-                release-assets/jetbrains/*.zip
-            else
-              gh release create "$TAG_NAME" \
-                --repo "${{ github.repository }}" \
-                --target "${{ github.sha }}" \
-                --title "$RELEASE_NAME" \
-                --body-file RELEASE_NOTES.md \
-                release-assets/vsix/*.vsix \
-                release-assets/jetbrains/*.zip
-            fi
-          fi
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag_name }}
+          name: ${{ steps.release_meta.outputs.release_name }}
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          target_commitish: ${{ github.sha }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            release-assets/vsix/*.vsix
+            release-assets/jetbrains/*.zip
+          fail_on_unmatched_files: true
