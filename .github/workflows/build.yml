@@ -40,11 +40,15 @@ jobs:
       - name: Compile extension
         run: npm run compile
 
+      - name: Install VSCE globally
+        run: npm install -g @vscode/vsce
+
       - name: Package VSIX
         shell: pwsh
         run: |
+          $TAG = "${{ github.ref_name }}"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-${{ github.ref_name }}.vsix
+          vsce package --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-$TAG.vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
@@ -77,7 +81,7 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           TAG="${TAG#v}"
           TAG="${TAG#V}"
-          gradle -p jetbrains-adapter -PpluginVersion="$TAG" buildPlugin --stacktrace
+          gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG" buildPlugin --stacktrace
 
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
