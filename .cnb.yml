@@ -51,21 +51,7 @@ $:
             ' CHANGELOG.md > RELEASE_NOTES.md
 
             if [ ! -s RELEASE_NOTES.md ]; then
-              echo "WARN: no changelog section matched tag '$TAG', fallback to latest section" >&2
-              awk '
-                BEGIN { in_section = 0 }
-                /^##[[:space:]]+/ {
-                  if (in_section) exit
-                  in_section = 1
-                  print
-                  next
-                }
-                in_section { print }
-              ' CHANGELOG.md > RELEASE_NOTES.md
-            fi
-
-            if [ ! -s RELEASE_NOTES.md ]; then
-              echo "ERROR: failed to generate release notes from CHANGELOG.md" >&2
+              echo "ERROR: no changelog section matched tag '$TAG' (normalized: '$CHANGELOG_VER')" >&2
               exit 1
             fi
 
