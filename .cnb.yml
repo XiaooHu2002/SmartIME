@@ -10,7 +10,6 @@ $:
             export GOARCH=amd64
             export CGO_ENABLED=0
             go build -C tools/ime-worker -o ../ime-worker.exe .
-
         - name: Build VSIX
           image: node:20
           script: |
@@ -53,25 +52,39 @@ $:
               echo "ERROR: no changelog section matched tag '$TAG' (normalized: '$CHANGELOG_VER')" >&2
               exit 1
             fi
-
         - name: Build JetBrains Plugin
           image: gradle:8.10.2-jdk17
-          script: |
+          script: >
             set -e
-            gradle -p jetbrains-adapter buildPlugin --stacktrace
-            mkdir -p dist
-            cp jetbrains-adapter/build/distributions/*.zip dist/
 
+            TAG="${CNB_BRANCH}"
+
+            TAG="${TAG#refs/tags/}"
+
+            if [ -z "$TAG" ]; then
+              TAG="$(node -p "require('./package.json').version")"
+            fi
+
+            TAG="${TAG#v}"
+
+            TAG="${TAG#V}"
+
+
+            gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG"
+            buildPlugin
+
+            mkdir -p dist
+
+            cp jetbrains-adapter/build/distributions/*.zip dist/
         - name: Create Release
           type: git:release
           options:
-            title: "${CNB_BRANCH}"
+            title: ${CNB_BRANCH}
             descriptionFromFile: RELEASE_NOTES.md
             latest: true
-
         - name: Upload VSIX To Release
           image: cnbcool/attachments:latest
           settings:
             attachments:
-              - "./dist/*.vsix"
-              - "./dist/*.zip"
+              - ./dist/*.vsix
+              - ./dist/*.zip

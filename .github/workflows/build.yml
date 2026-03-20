@@ -8,7 +8,6 @@ on:
       - "*"
   workflow_dispatch:
 
-# 全局权限（兜底）
 permissions:
   contents: write
 
@@ -45,11 +44,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          npx @vscode/vsce package `
-            --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ `
-            --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ `
-            --out .\dist\smartime-${{ github.ref_name }}.vsix
-
+          npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-${{ github.ref_name }}.vsix
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,7 +65,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
@@ -81,8 +76,7 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           TAG="${TAG#v}"
           TAG="${TAG#V}"
-          gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG" buildPlugin --stacktrace
-
+          gradle -p jetbrains-adapter -PpluginVersion="$TAG" buildPlugin --stacktrace
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
         with:
@@ -91,15 +85,11 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && needs.build-vscode.result == 'success' && needs.build-jetbrains.result == 'success'
     needs:
       - build-vscode
       - build-jetbrains
     runs-on: ubuntu-latest
-
-    # ❗关键：必须单独声明权限
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -117,23 +107,54 @@ jobs:
           name: smartime-jetbrains
           path: release-assets/jetbrains
 
-      - name: Build release notes
+      - name: Build release notes from CHANGELOG
+        shell: bash
         run: |
-          echo "Release ${{ github.ref_name }}" > RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-          echo "Auto generated release." >> RELEASE_NOTES.md
-
-      - name: Create GitHub Release
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            CHANGELOG_VER="${TAG#v}"
+            CHANGELOG_VER="${CHANGELOG_VER#V}"
+            awk -v ver="$CHANGELOG_VER" '
+              BEGIN {
+                in_section = 0
+                gsub(/[][(){}.^$*+?|\\]/, "\\\\&", ver)
+              }
+              $0 ~ ("^##[[:space:]]*\\[?v?" ver "\\]?([[:space:]]*$|[[:space:]-])") {
+                in_section = 1
+                next
+              }
+              in_section && $0 ~ /^##[[:space:]]+/ { exit }
+              in_section { print }
+            ' CHANGELOG.md > RELEASE_NOTES.md
+            if [ ! -s RELEASE_NOTES.md ]; then
+              echo "ERROR: no changelog section matched tag '$TAG' (normalized: '$CHANGELOG_VER')" >&2
+              exit 1
+            fi
+          else
+            echo "Automated main build release for commit ${GITHUB_SHA}." > RELEASE_NOTES.md
+            echo >> RELEASE_NOTES.md
+            echo "This is a pre-release generated after both VSIX and JetBrains artifacts built successfully." >> RELEASE_NOTES.md
+          fi
+      - name: Resolve release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "release_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_name=main-build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "release_name=main-build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
-        env:
-          # 👉 推荐：如果你配置了 PAT，就用这一行
-          # GITHUB_TOKEN: ${{ secrets.SMARTIME_TOKEN }}
-
-          # 👉 默认：用系统 token
-          GITHUB_TOKEN: ${{ github.token }}
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release_meta.outputs.tag_name }}
+          name: ${{ steps.release_meta.outputs.release_name }}
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
           files: |
             release-assets/vsix/*.vsix
