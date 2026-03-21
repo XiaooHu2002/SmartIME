@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-${{ github.ref_name }}.vsix
+          npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/  ${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/  ${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-${{ github.ref_name }}.vsix
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
@@ -142,8 +142,8 @@ jobs:
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         env:
-          # 显式指定GITHUB_TOKEN（确保权限传递）
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 🔥 关键修改：使用你创建的 PAT 替代默认 GITHUB_TOKEN
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
