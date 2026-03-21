@@ -71,10 +71,24 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Gradle 8.10.2
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build IME worker for JetBrains package
+        shell: bash
+        run: |
+          set -e
+          export GOOS=windows
+          export GOARCH=amd64
+          export CGO_ENABLED=0
+          go build -C tools/ime-worker -o ../ime-worker.exe .
+
+      - name: Setup Gradle 8.5
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.10.2
+          gradle-version: 8.5
 
       - name: Build JetBrains plugin
         shell: bash
@@ -82,7 +96,15 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           TAG="${TAG#v}"
           TAG="${TAG#V}"
-          gradle -p jetbrains-adapter -PpluginVersion="$TAG" buildPlugin --stacktrace
+          gradle -p jetbrains-adapter --no-daemon -PpluginVersion="$TAG" buildPlugin --stacktrace
+
+      - name: Verify JetBrains package contains worker
+        shell: bash
+        run: |
+          set -e
+          ZIP_PATH=$(ls -1 jetbrains-adapter/build/distributions/*.zip | head -n 1)
+          echo "Checking: $ZIP_PATH"
+          unzip -l "$ZIP_PATH" | grep -E "bin/ime-worker\.exe|ime-worker\.exe"
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
         with:
@@ -126,22 +148,23 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           CHANGELOG_VER="${TAG#v}"
           CHANGELOG_VER="${CHANGELOG_VER#V}"
-          # 优化awk逻辑，兼容CHANGELOG的常见格式
+
           awk -v ver="$CHANGELOG_VER" '
-            BEGIN { in_section = 0 }
-            # 匹配 ## [x.y.z] 或 ## vx.y.z 格式
-            $0 ~ "^##[[:space:]]*\\[?v?" ver "\\]?([[:space:]]|$)" {
+            BEGIN {
+              in_section = 0
+              gsub(/[][(){}.^$*+?|\\]/, "\\\\&", ver)
+            }
+            $0 ~ ("^##[[:space:]]*\\[?v?" ver "\\]?([[:space:]]*$|[[:space:]-])") {
               in_section = 1
               next
             }
-            # 遇到下一个版本标题时退出
-            in_section && $0 ~ "^##[[:space:]]+\\[?v?[0-9]+\\.[0-9]+\\.[0-9]+\\]?" { exit }
+            in_section && $0 ~ /^##[[:space:]]+/ { exit }
             in_section { print }
           ' CHANGELOG.md > RELEASE_NOTES.md
-          # 兜底：如果没找到对应版本的日志，使用默认内容
+
           if [ ! -s RELEASE_NOTES.md ]; then
-            echo "## Release $TAG" > RELEASE_NOTES.md
-            echo -e "\nAutomated release for tag $TAG." >> RELEASE_NOTES.md
+            echo "ERROR: no changelog section matched tag '$TAG' (normalized: '$CHANGELOG_VER')" >&2
+            exit 1
           fi
 
       - name: Validate release PAT
