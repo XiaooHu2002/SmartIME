@@ -8,6 +8,9 @@ on:
       - "*"
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # 根级别权限（兜底）
 permissions:
   contents: write
@@ -44,8 +47,10 @@ jobs:
       - name: Package VSIX
         shell: pwsh
         run: |
+          $BaseUrl = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/"
+          $OutFile = "./dist/smartime-${{ github.ref_name }}.vsix"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/  ${{ github.repository }}/${{ github.ref_name }}/ --baseImagesUrl https://raw.githubusercontent.com/  ${{ github.repository }}/${{ github.ref_name }}/ --out .\dist\smartime-${{ github.ref_name }}.vsix
+          npx @vscode/vsce package --baseContentUrl "$BaseUrl" --baseImagesUrl "$BaseUrl" --out "$OutFile"
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
@@ -142,7 +147,7 @@ jobs:
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         env:
-          # 🔥 关键修改：使用你创建的 PAT 替代默认 GITHUB_TOKEN
+
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         with:
           tag_name: ${{ github.ref_name }}
