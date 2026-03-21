@@ -186,9 +186,9 @@ func mapPunctuation(text string, mapper map[string]string) (string, error) {
 }
 
 func writeResponse(writer *bufio.Writer, resp response) {
-	data, _ := json.Marshal(resp)
-	_, _ = writer.Write(data)
-	_, _ = writer.WriteString("\n")
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(resp)
 	_ = writer.Flush()
 }
 

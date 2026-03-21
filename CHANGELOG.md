@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.5
+
+### 修复
+- 修复 JetBrains 适配层标点映射中 `>` 异常显示为 `u003e` 的问题。
+- Go worker 响应改为 `json.NewEncoder` + `SetEscapeHTML(false)`，避免 `> < &` 被默认 HTML 转义为 `\uXXXX`。
+- `GoWorkerBridge.extractJsonString` 补全 JSON 转义解析：支持 `\uXXXX`（Unicode）、`\b`、`\f`、`\/`，提升响应解码稳健性。
+
+### 验证
+- `tools/ime-worker` 已完成本地重编译，标准产物保持为 `tools/ime-worker.exe`。
+- TypeScript 编译（`npm run compile`）与 JetBrains Kotlin 编译（`gradle compileKotlin`）通过。
+
 ## 0.0.4
 
 ### VSIX (VS Code 扩展)

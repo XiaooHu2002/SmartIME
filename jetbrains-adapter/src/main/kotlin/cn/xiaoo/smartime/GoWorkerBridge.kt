@@ -165,16 +165,31 @@ class GoWorkerBridge(
         while (i < json.length) {
             val ch = json[i]
             if (escaped) {
-                out.append(
-                    when (ch) {
-                        'n' -> '\n'
-                        'r' -> '\r'
-                        't' -> '\t'
-                        '"' -> '"'
-                        '\\' -> '\\'
-                        else -> ch
-                    },
-                )
+                when (ch) {
+                    'n' -> out.append('\n')
+                    'r' -> out.append('\r')
+                    't' -> out.append('\t')
+                    'b' -> out.append('\b')
+                    'f' -> out.append('\u000C')
+                    '"' -> out.append('"')
+                    '\\' -> out.append('\\')
+                    '/' -> out.append('/')
+                    'u' -> {
+                        if (i + 4 < json.length) {
+                            val hex = json.substring(i + 1, i + 5)
+                            val code = hex.toIntOrNull(16)
+                            if (code != null) {
+                                out.append(code.toChar())
+                                i += 4
+                            } else {
+                                out.append('u')
+                            }
+                        } else {
+                            out.append('u')
+                        }
+                    }
+                    else -> out.append(ch)
+                }
                 escaped = false
             } else if (ch == '\\') {
                 escaped = true
