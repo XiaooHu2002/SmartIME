@@ -144,12 +144,20 @@ jobs:
             echo -e "\nAutomated release for tag $TAG." >> RELEASE_NOTES.md
           fi
 
+      - name: Validate release PAT
+        shell: bash
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "$RELEASE_PAT" ]; then
+            echo "ERROR: secrets.RELEASE_PAT is empty or not configured" >&2
+            exit 1
+          fi
+
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
-        env:
-
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           prerelease: false
