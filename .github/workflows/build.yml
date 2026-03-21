@@ -104,7 +104,22 @@ jobs:
           set -e
           ZIP_PATH=$(ls -1 jetbrains-adapter/build/distributions/*.zip | head -n 1)
           echo "Checking: $ZIP_PATH"
-          unzip -l "$ZIP_PATH" | grep -E "bin/ime-worker\.exe|ime-worker\.exe"
+          CHECK_DIR=$(mktemp -d)
+          unzip -q "$ZIP_PATH" -d "$CHECK_DIR"
+
+          MAIN_JAR=$(find "$CHECK_DIR" -type f -name "instrumented-smartime-jetbrains-adapter-*.jar" | head -n 1)
+          if [ -z "$MAIN_JAR" ]; then
+            MAIN_JAR=$(find "$CHECK_DIR" -type f -name "smartime-jetbrains-adapter-*.jar" ! -name "searchableOptions-*.jar" | head -n 1)
+          fi
+
+          if [ -z "$MAIN_JAR" ]; then
+            echo "ERROR: main plugin jar not found in package" >&2
+            exit 1
+          fi
+
+          echo "Inspecting jar: $MAIN_JAR"
+          jar tf "$MAIN_JAR" | grep -q "^bin/ime-worker\.exe$"
+          echo "OK: bin/ime-worker.exe exists in plugin jar"
       - name: Upload JetBrains artifact
         uses: actions/upload-artifact@v4
         with:
