@@ -121,6 +121,10 @@ class SmartInputService implements vscode.Disposable {
         this.disarmEditorInteraction();
       }),
       vscode.window.onDidChangeTextEditorSelection((event) => {
+        if (event.kind === vscode.TextEditorSelectionChangeKind.Command) {
+          return;
+        }
+
         this.armEditorInteraction();
         this.renderDecoratorAtLineEnd(this.imeController.mode);
         this.scheduleActivitySync();
@@ -191,7 +195,7 @@ class SmartInputService implements vscode.Disposable {
         if (!terminal) {
           return;
         }
-        void this.applyToolWindowScene("Terminal");
+        this.disarmEditorInteraction();
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("smartInput")) {
@@ -335,6 +339,9 @@ class SmartInputService implements vscode.Disposable {
     }
     if (!vscode.window.activeTextEditor) {
       return "no active editor";
+    }
+    if (!this.editorInteractionArmed) {
+      return "editor not focused";
     }
     return undefined;
   }
